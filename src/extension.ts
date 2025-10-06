@@ -1,8 +1,11 @@
+
 import * as vscode from 'vscode';
+import { KhTablesModeService, KhTablesModeSnapshot, KhTablesOverride } from './features/khTables/state';
 
 export function activate(context: vscode.ExtensionContext): void {
+  const khTablesModeService = new KhTablesModeService(context.workspaceState);
   context.subscriptions.push(
-    CsvEditorProvider.register(context),
+    CsvEditorProvider.register(context, khTablesModeService),
     vscode.commands.registerCommand('tablesCsvEditor.openFile', async (uri?: vscode.Uri) => {
       const target = uri ?? vscode.window.activeTextEditor?.document.uri;
       if (!target) {
@@ -26,17 +29,41 @@ export function deactivate(): void {
 type WebviewMessage =
   | { type: 'ready' }
   | { type: 'update'; text: string }
-  | { type: 'requestSave'; text: string };
+  | { type: 'requestSave'; text: string }
+  | { type: 'setKhMode'; override: KhTablesOverride };
+
+type HostDocumentMessageType = 'init' | 'externalUpdate';
+
+interface KhTablesWebviewState {
+  readonly active: boolean;
+  readonly override: KhTablesOverride;
+  readonly detection: {
+    readonly hasMarkers: boolean;
+    readonly markRowIndex: number | null;
+    readonly tokenHits: readonly string[];
+    readonly confidence: number;
+  };
+}
+
+type HostToWebviewMessage =
+  | { type: HostDocumentMessageType; text: string; khTables: KhTablesWebviewState }
+  | { type: 'khTablesState'; khTables: KhTablesWebviewState };
 
 class CsvEditorProvider implements vscode.CustomTextEditorProvider {
   public static readonly viewType = 'tables.csvEditor';
 
   private readonly updatingDocuments = new Set<string>();
 
-  private constructor(private readonly context: vscode.ExtensionContext) {}
+  private constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly khTablesMode: KhTablesModeService
+  ) {}
 
-  public static register(context: vscode.ExtensionContext): vscode.Disposable {
-    const provider = new CsvEditorProvider(context);
+  public static register(
+    context: vscode.ExtensionContext,
+    khTablesMode: KhTablesModeService
+  ): vscode.Disposable {
+    const provider = new CsvEditorProvider(context, khTablesMode);
     return vscode.window.registerCustomEditorProvider(CsvEditorProvider.viewType, provider, {
       webviewOptions: { retainContextWhenHidden: true },
       supportsMultipleEditorsPerDocument: false
@@ -56,10 +83,6 @@ class CsvEditorProvider implements vscode.CustomTextEditorProvider {
 
     const documentUri = document.uri.toString();
 
-    const updateWebview = () => {
-      webview.postMessage({ type: 'init', text: document.getText() });
-    };
-
     const changeSubscription = vscode.workspace.onDidChangeTextDocument((event) => {
       if (event.document.uri.toString() !== documentUri) {
         return;
@@ -69,7 +92,7 @@ class CsvEditorProvider implements vscode.CustomTextEditorProvider {
         return;
       }
 
-      webview.postMessage({ type: 'externalUpdate', text: document.getText() });
+      this.postDocumentSnapshot(webview, document, 'externalUpdate');
     });
 
     webviewPanel.onDidDispose(() => {
@@ -79,20 +102,43 @@ class CsvEditorProvider implements vscode.CustomTextEditorProvider {
     webview.onDidReceiveMessage(async (message: WebviewMessage) => {
       switch (message.type) {
         case 'ready': {
-          updateWebview();
+          this.postDocumentSnapshot(webview, document, 'init');
           break;
         }
         case 'update': {
           await this.updateTextDocument(document, message.text ?? '');
+          this.postDocumentSnapshot(webview, document, 'externalUpdate');
           break;
         }
         case 'requestSave': {
           await this.updateTextDocument(document, message.text ?? '');
           await vscode.workspace.saveAll();
+          this.postDocumentSnapshot(webview, document, 'externalUpdate');
+          break;
+        }
+        case 'setKhMode': {
+          this.handleKhModeOverride(document, webview, message.override);
           break;
         }
       }
     });
+  }
+
+  private handleKhModeOverride(
+    document: vscode.TextDocument,
+    webview: vscode.Webview,
+    override: KhTablesOverride
+  ): void {
+    if (!['on', 'off', 'auto'].includes(override)) {
+      return;
+    }
+    this.khTablesMode.setOverride(document.uri, override);
+    const snapshot = this.khTablesMode.evaluate(document);
+    const message: HostToWebviewMessage = {
+      type: 'khTablesState',
+      khTables: this.toWebviewState(snapshot)
+    };
+    void webview.postMessage(message);
   }
 
   private async updateTextDocument(document: vscode.TextDocument, text: string): Promise<void> {
@@ -113,6 +159,33 @@ class CsvEditorProvider implements vscode.CustomTextEditorProvider {
     } finally {
       this.updatingDocuments.delete(documentUri);
     }
+  }
+
+  private postDocumentSnapshot(
+    webview: vscode.Webview,
+    document: vscode.TextDocument,
+    type: HostDocumentMessageType
+  ): void {
+    const snapshot = this.khTablesMode.evaluate(document);
+    const message: HostToWebviewMessage = {
+      type,
+      text: document.getText(),
+      khTables: this.toWebviewState(snapshot)
+    };
+    void webview.postMessage(message);
+  }
+
+  private toWebviewState(snapshot: KhTablesModeSnapshot): KhTablesWebviewState {
+    return {
+      active: snapshot.active,
+      override: snapshot.override,
+      detection: {
+        hasMarkers: snapshot.detection.hasMarkers,
+        markRowIndex: snapshot.detection.markRowIndex ?? null,
+        tokenHits: snapshot.detection.tokenHits,
+        confidence: snapshot.detection.confidence
+      }
+    };
   }
 
   private getDocumentRange(document: vscode.TextDocument): vscode.Range {
@@ -169,10 +242,21 @@ class CsvEditorProvider implements vscode.CustomTextEditorProvider {
   </head>
   <body>
     <div class="toolbar">
-      <button id="add-row">Add Row</button>
-      <button id="remove-row">Remove Row</button>
-      <button id="add-column">Add Column</button>
-      <button id="remove-column">Remove Column</button>
+      <div class="toolbar-group">
+        <button id="add-row">Add Row</button>
+        <button id="remove-row">Remove Row</button>
+        <button id="add-column">Add Column</button>
+        <button id="remove-column">Remove Column</button>
+      </div>
+      <div class="toolbar-group" id="kh-mode">
+        <label for="kh-mode-select">Tables mode</label>
+        <select id="kh-mode-select">
+          <option value="auto">Auto detect</option>
+          <option value="on">Force on</option>
+          <option value="off">Force off</option>
+        </select>
+        <span id="kh-mode-status" aria-live="polite"></span>
+      </div>
       <span class="spacer"></span>
       <div id="status" role="status" aria-live="polite"></div>
       <button id="save">Save</button>

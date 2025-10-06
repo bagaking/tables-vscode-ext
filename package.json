@@ -42,10 +42,12 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.30",
+    "@types/papaparse": "^5.3.16",
     "@types/vscode": "^1.84.0",
     "typescript": "^5.3.3"
   },
   "dependencies": {
+    "@khgame/tables": "0.2.8",
     "ag-grid-community": "^32.2.1",
     "papaparse": "^5.4.1"
   }

@@ -8,6 +8,18 @@
   const removeColumnButton = document.getElementById('remove-column');
   const saveButton = document.getElementById('save');
 
+  const khModeSelect = document.getElementById('kh-mode-select');
+  const khModeStatus = document.getElementById('kh-mode-status');
+
+  /**
+   * @typedef {{ active: boolean; override: 'auto' | 'on' | 'off'; detection: { hasMarkers: boolean; markRowIndex: number | null; tokenHits: string[]; confidence: number } }} KhTablesViewState
+   */
+
+  /** @type {KhTablesViewState} */
+  let khTablesState = createDefaultKhTablesState();
+  /** @type {boolean} */
+  let suppressModeSelectNotifications = false;
+
   /** @type {string} */
   let lastCsvText = '';
   /** @type {number} */
@@ -26,6 +38,68 @@
   let gridResizeObserver = null;
   /** @type {boolean} */
   let columnFitQueued = false;
+
+  function createDefaultKhTablesState() {
+    return {
+      active: false,
+      override: 'auto',
+      detection: { hasMarkers: false, markRowIndex: null, tokenHits: [], confidence: 0 }
+    };
+  }
+
+  function applyKhTablesState(nextState) {
+    if (!nextState || typeof nextState !== 'object') {
+      nextState = createDefaultKhTablesState();
+    }
+
+    const override = nextState.override === 'on' || nextState.override === 'off' ? nextState.override : 'auto';
+    const detection = nextState.detection || {};
+
+    khTablesState = {
+      active: Boolean(nextState.active),
+      override,
+      detection: {
+        hasMarkers: Boolean(detection.hasMarkers),
+        markRowIndex:
+          typeof detection.markRowIndex === 'number' && Number.isFinite(detection.markRowIndex)
+            ? Math.max(0, Math.floor(detection.markRowIndex))
+            : null,
+        tokenHits: Array.isArray(detection.tokenHits) ? detection.tokenHits.map(String) : [],
+        confidence: typeof detection.confidence === 'number' ? detection.confidence : 0
+      }
+    };
+    updateKhTablesModeUi();
+  }
+
+  function updateKhTablesModeUi() {
+    const { active, override, detection } = khTablesState;
+    if (khModeStatus) {
+      const modeText = active ? 'Enabled' : 'Disabled';
+      let detail;
+      switch (override) {
+        case 'on':
+          detail = 'forced on';
+          break;
+        case 'off':
+          detail = 'forced off';
+          break;
+        default:
+          detail = detection.hasMarkers ? 'auto · markers detected' : 'auto';
+          break;
+      }
+      khModeStatus.textContent = `${modeText} (${detail})`;
+      khModeStatus.dataset.active = String(active);
+      khModeStatus.title = detection.tokenHits.length > 0 ? `Detected tokens: ${detection.tokenHits.join(', ')}` : '';
+    }
+
+    if (khModeSelect) {
+      suppressModeSelectNotifications = true;
+      if (khModeSelect.value !== override) {
+        khModeSelect.value = override;
+      }
+      suppressModeSelectNotifications = false;
+    }
+  }
 
   function setStatus(message, tone) {
     statusElement.textContent = message || '';
@@ -341,6 +415,10 @@
       case 'init':
       case 'externalUpdate':
         updateFromText(message.text || '');
+        applyKhTablesState(message.khTables);
+        break;
+      case 'khTablesState':
+        applyKhTablesState(message.khTables);
         break;
       default:
         break;
@@ -352,6 +430,20 @@
   addColumnButton.addEventListener('click', addColumn);
   removeColumnButton.addEventListener('click', removeColumn);
   saveButton.addEventListener('click', requestSave);
+
+  if (khModeSelect) {
+    khModeSelect.addEventListener('change', () => {
+      if (suppressModeSelectNotifications) {
+        return;
+      }
+      const override = khModeSelect.value;
+      if (override === 'auto' || override === 'on' || override === 'off') {
+        vscode.postMessage({ type: 'setKhMode', override });
+      }
+    });
+  }
+
+  updateKhTablesModeUi();
 
   initializeGrid();
   restoreFromState();
