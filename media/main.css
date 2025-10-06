@@ -1,0 +1,84 @@
+:root {
+  color-scheme: var(--vscode-color-scheme, dark);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+}
+
+.toolbar button {
+  border: none;
+  border-radius: 4px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.9rem;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  cursor: pointer;
+  transition: background 0.1s ease-out;
+}
+
+.toolbar button:hover {
+  background: var(--vscode-button-hoverBackground, #0e639c);
+}
+
+.toolbar button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #007acc);
+  outline-offset: 1px;
+}
+
+.toolbar .spacer {
+  flex: 1 1 auto;
+}
+
+#status {
+  min-height: 1.2rem;
+  color: var(--vscode-descriptionForeground, rgba(255, 255, 255, 0.7));
+  font-size: 0.85rem;
+}
+
+#status[data-tone="error"] {
+  color: var(--vscode-errorForeground, #f48771);
+}
+
+#status[data-tone="warn"] {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+#grid {
+  flex: 1 1 auto;
+  width: 100%;
+  height: calc(100vh - 3rem);
+}
+
+.ag-theme-quartz {
+  --ag-foreground-color: var(--vscode-foreground);
+  --ag-background-color: var(--vscode-editor-background);
+  --ag-header-background-color: var(--vscode-editorGroupHeader-tabsBackground, #1f1f1f);
+  --ag-header-foreground-color: var(--vscode-foreground);
+  --ag-row-border-color: var(--vscode-editor-foreground, rgba(128, 128, 128, 0.15));
+  --ag-borders: var(--vscode-editor-foreground, rgba(128, 128, 128, 0.15));
+  --ag-selected-row-background-color: color-mix(in srgb, var(--vscode-editor-selectionBackground) 80%, transparent);
+  --ag-font-family: var(--vscode-font-family, system-ui, sans-serif);
+  --ag-header-column-resize-handle-color: var(--vscode-focusBorder, #007acc);
+  --ag-grid-size: 3px;
+  --ag-row-height: 28px;
+  --ag-header-height: 34px;
+  --ag-cell-horizontal-padding: 6px;
+}
