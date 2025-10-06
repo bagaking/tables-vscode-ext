@@ -88,8 +88,6 @@
   let textMeasureFontSize = '';
   /** @type {string} */
   let textMeasureFontFamily = '';
-  /** @type {number | null} */
-  let rawViewInputTimer = null;
 
 
   function createDefaultKhTablesState() {

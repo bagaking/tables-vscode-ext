@@ -226,7 +226,8 @@ class CsvEditorProvider implements vscode.CustomTextEditorProvider {
       "default-src 'none'",
       `style-src ${webview.cspSource} 'unsafe-inline'`,
       `script-src 'nonce-${nonce}'`,
-      `img-src ${webview.cspSource} https: data:`
+      `img-src ${webview.cspSource} https: data:`,
+      `font-src ${webview.cspSource} data:`
     ].join('; ');
 
     return `<!DOCTYPE html>
