@@ -308,7 +308,9 @@ body {
 }
 
 .ag-row.kh-mark-row .kh-col-type-alias,
-.ag-row.kh-field-row .kh-col-type-alias {
+.ag-row.kh-field-row .kh-col-type-alias,
+.ag-row.kh-mark-row .kh-col-type-enum,
+.ag-row.kh-field-row .kh-col-type-enum {
   background: #dff5d8;
   color: #1b4d33;
 }
@@ -336,6 +338,11 @@ body {
   background: #e6f2ff;
 }
 
+.ag-theme-quartz .ag-center-cols-container .ag-row:not(.kh-mark-row):not(.kh-field-row) .kh-col-type-enum,
+.ag-theme-quartz .ag-pinned-left-cols-container .ag-row:not(.kh-mark-row):not(.kh-field-row) .kh-col-type-enum {
+  background: #eef9f0;
+}
+
 .ag-theme-quartz .ag-center-cols-container .ag-row:not(.kh-mark-row):not(.kh-field-row) .kh-col-type-struct,
 .ag-theme-quartz .ag-pinned-left-cols-container .ag-row:not(.kh-mark-row):not(.kh-field-row) .kh-col-type-struct {
   background: #999999;
@@ -352,9 +359,16 @@ body {
   font-weight: 600;
 }
 
-.ag-theme-quartz .kh-col-comment {
+.ag-row.kh-mark-row .kh-col-comment,
+.ag-row.kh-field-row .kh-col-comment {
   font-style: italic !important;
   color: #333333 !important;
+  font-weight: 400 !important;
+}
+
+.ag-row:not(.kh-mark-row):not(.kh-field-row) .kh-col-comment {
+  font-style: normal !important;
+  color: #000000 !important;
   font-weight: 400 !important;
 }
 
@@ -372,8 +386,8 @@ body {
 }
 
 .ag-row:not(.kh-mark-row):not(.kh-field-row) .kh-data-optional {
-  color: #444444;
-  font-style: italic;
+  color: #000000;
+  font-style: normal;
 }
 
 .ag-theme-quartz .ag-row.kh-mark-row .kh-col-primary-key,
@@ -415,4 +429,32 @@ body {
 
 .kh-rainbow-depth-5 {
   color: #ab47bc;
+}
+
+.kh-enum-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  min-height: 18px;
+  background: #e0f2ff;
+  border-radius: 10px;
+  color: #0b4870;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.kh-enum-editor {
+  width: 100%;
+  font: inherit;
+  border: 1px solid var(--vscode-input-border, rgba(255, 255, 255, 0.25));
+  border-radius: 4px;
+  padding: 0.1rem 0.2rem;
+  background: var(--vscode-input-background, #1e1e1e);
+  color: var(--vscode-input-foreground, inherit);
+}
+
+.kh-enum-editor:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #007acc);
+  outline-offset: 0;
 }

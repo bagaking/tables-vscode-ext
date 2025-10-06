@@ -39,7 +39,7 @@
   let gridResizeObserver = null;
   /** @type {boolean} */
   let columnFitQueued = false;
-  /** @type {{ markClasses: string[]; fieldClasses: string[]; dataClasses: string[]; columnType: string }[]} */
+  /** @type {{ markClasses: string[]; fieldClasses: string[]; dataClasses: string[]; columnType: string; enumToken?: string }[]} */
   let columnTokenStyles = [];
   /** @type {number[]} */
   let columnAutoWidths = [];
@@ -81,6 +81,69 @@
   const HEADER_WIDTH_BUFFER = 6;
   const RAW_VIEW_DEBOUNCE_MS = 250;
   const CONTEXT_MENU_ID = 'kh-context-menu';
+
+  /**
+   * @param {number | null | undefined} columnIndex
+   * @returns {string | undefined}
+   */
+  function getEnumTokenForColumn(columnIndex) {
+    if (typeof columnIndex !== 'number' || columnIndex < 0 || columnIndex >= columnTokenStyles.length) {
+      return undefined;
+    }
+    return columnTokenStyles[columnIndex]?.enumToken;
+  }
+
+  /**
+   * @returns {number | null}
+   */
+  function getFirstTidColumnIndex() {
+    for (let index = 0; index < columnTokenStyles.length; index += 1) {
+      if (columnTokenStyles[index]?.columnType === 'tid') {
+        return index;
+      }
+    }
+    return null;
+  }
+
+  function getTableCellValue(rowIndex, columnIndex) {
+    if (!Number.isFinite(rowIndex) || !Number.isFinite(columnIndex)) {
+      return '';
+    }
+    const row = table[rowIndex];
+    if (!Array.isArray(row) || columnIndex < 0 || columnIndex >= row.length) {
+      return '';
+    }
+    const value = row[columnIndex];
+    return value != null ? String(value) : '';
+  }
+
+  async function copyTextToClipboard(text) {
+    if (!text) {
+      return;
+    }
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        throw new Error('clipboard API unavailable');
+      }
+    } catch (err) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', 'true');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    }
+    setStatus('tid copied to clipboard', 'info');
+  }
 
   /** @type {HTMLSpanElement | null} */
   let textMeasureProbe = null;
@@ -227,6 +290,14 @@
     return fragments.join('');
   }
 
+  function buildRainbowHtml(value) {
+    const text = value == null ? '' : String(value);
+    if (text.length === 0) {
+      return '';
+    }
+    return highlightRainbowBrackets(text);
+  }
+
   function rainbowCellRenderer(params) {
     if (!params) {
       return '';
@@ -239,9 +310,84 @@
 
     const container = document.createElement('span');
     container.className = 'kh-cell-content';
-    container.innerHTML = highlightRainbowBrackets(value);
+    container.innerHTML = buildRainbowHtml(value);
     return container;
   }
+
+  function createEnumCellRenderer() {
+    return (params) => {
+      if (!params) {
+        return '';
+      }
+      const value = params.value != null ? String(params.value) : '';
+      if (value.length === 0) {
+        return '';
+      }
+      const container = document.createElement('span');
+      container.className = 'kh-cell-content';
+      const badge = document.createElement('span');
+      badge.className = 'kh-enum-tag';
+      badge.innerHTML = buildRainbowHtml(value);
+      container.appendChild(badge);
+      return container;
+    };
+  }
+
+  function EnumSelectEditor() {}
+
+  EnumSelectEditor.prototype.init = function init(params) {
+    this.params = params;
+    const currentValue = params.value != null ? String(params.value) : '';
+    const select = document.createElement('select');
+    select.className = 'kh-enum-editor';
+    select.setAttribute('aria-label', 'Enum value');
+
+    const seen = new Set();
+    const addOption = (value, label) => {
+      if (seen.has(value)) {
+        return;
+      }
+      seen.add(value);
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label ?? value;
+      select.appendChild(option);
+    };
+
+    addOption('', '');
+
+    const values = Array.isArray(params.values) ? params.values : [];
+    values.forEach((optionValue) => {
+      if (typeof optionValue === 'string' && optionValue.trim().length > 0) {
+        addOption(optionValue, optionValue);
+      }
+    });
+
+    if (currentValue && !seen.has(currentValue)) {
+      addOption(currentValue, currentValue);
+    }
+
+    select.value = currentValue;
+    this.gui = select;
+  };
+
+  EnumSelectEditor.prototype.getGui = function getGui() {
+    return this.gui;
+  };
+
+  EnumSelectEditor.prototype.afterGuiAttached = function afterGuiAttached() {
+    if (this.gui) {
+      this.gui.focus({ preventScroll: true });
+    }
+  };
+
+  EnumSelectEditor.prototype.getValue = function getValue() {
+    return this.gui ? this.gui.value : '';
+  };
+
+  EnumSelectEditor.prototype.destroy = function destroy() {
+    this.gui = null;
+  };
 
   function applyKhTablesState(nextState) {
     if (!nextState || typeof nextState !== 'object') {
@@ -458,6 +604,16 @@
       disabled: table.length <= 1 || !canRemove,
       action: () => removeRow(rowIndex)
     });
+    const tidColumnIndex = getFirstTidColumnIndex();
+    if (tidColumnIndex != null) {
+      const rawValue = getTableCellValue(rowIndex, tidColumnIndex);
+      items.push({ type: 'separator' });
+      items.push({
+        label: 'Copy tid',
+        disabled: !rawValue,
+        action: () => copyTextToClipboard(rawValue)
+      });
+    }
     return items;
   }
 
@@ -817,6 +973,31 @@
     return widths;
   }
 
+  function collectEnumOptions(columnIndex, markRowIndex) {
+    const options = new Set();
+    if (!Number.isFinite(columnIndex)) {
+      return [];
+    }
+
+    const skipRows = new Set();
+    if (Number.isFinite(markRowIndex)) {
+      skipRows.add(markRowIndex);
+      skipRows.add(markRowIndex + 1);
+    }
+
+    for (let rowIndex = 0; rowIndex < table.length; rowIndex += 1) {
+      if (skipRows.has(rowIndex)) {
+        continue;
+      }
+      const value = getTableCellValue(rowIndex, columnIndex).trim();
+      if (value) {
+        options.add(value);
+      }
+    }
+
+    return Array.from(options).sort((a, b) => a.localeCompare(b));
+  }
+
   function calculateInitialColumnWidth(columnIndex, markRowIndex, pinnedRows) {
     const headerLabel = toColumnLabel(columnIndex);
     const headerWidth = measureTextWidth(headerLabel, { fontWeight: '600' }) + HEADER_WIDTH_BUFFER;
@@ -911,6 +1092,9 @@
     ];
 
     for (let index = 0; index < totalColumns; index += 1) {
+      const tokenInfo = tokenStyles[index];
+      const enumToken = tokenInfo?.enumToken;
+      const enumOptions = enumToken ? collectEnumOptions(index, markRowIndex ?? null) : null;
       defs.push({
         headerName: toColumnLabel(index),
         field: `c${index}`,
@@ -919,7 +1103,9 @@
         width: columnAutoWidths[index],
         pinned: index < pinnedDataColumns ? 'left' : undefined,
         lockPinned: index < pinnedDataColumns,
-        cellRenderer: rainbowCellRenderer,
+        cellRenderer: enumToken ? createEnumCellRenderer(enumToken) : rainbowCellRenderer,
+        cellEditor: enumToken ? EnumSelectEditor : undefined,
+        cellEditorParams: enumToken ? { values: enumOptions } : undefined,
         cellClass: (params) => composeCellClasses(index, params, tokenStyles),
         cellDataType: 'text'
       });
@@ -996,7 +1182,7 @@
       if (!info) {
         break;
       }
-      if (info.columnType === 'at' || info.columnType === 'alias') {
+      if (info.columnType === 'at' || info.columnType === 'alias' || info.columnType === 'enum') {
         count += 1;
       } else {
         break;
@@ -1014,9 +1200,11 @@
     if (/[\{\}\[\]]/.test(raw) || normalized.includes('struct')) {
       return 'struct';
     }
+    if (normalized.startsWith('enum')) {
+      return 'enum';
+    }
     if (
       normalized.includes('alias') ||
-      normalized.startsWith('enum') ||
       normalized.includes('map') ||
       normalized.includes('pair')
     ) {
@@ -1050,6 +1238,7 @@
     }
 
     const columnType = determineColumnType(raw);
+    const enumToken = columnType === 'enum' ? raw : undefined;
 
     const typeClass = `kh-col-type-${columnType}`;
     markClasses.add(typeClass);
@@ -1068,7 +1257,7 @@
       dataClasses.add('kh-col-struct');
     }
 
-    if (columnType === 'at' || columnType === 'alias' || columnType === 'tid') {
+    if (columnType === 'at' || columnType === 'alias' || columnType === 'enum' || columnType === 'tid') {
       markClasses.add('kh-col-emphasis');
       fieldClasses.add('kh-col-emphasis');
       dataClasses.add('kh-col-emphasis');
@@ -1078,7 +1267,8 @@
       markClasses: Array.from(markClasses),
       fieldClasses: Array.from(fieldClasses),
       dataClasses: Array.from(dataClasses),
-      columnType
+      columnType,
+      enumToken
     };
   }
 
