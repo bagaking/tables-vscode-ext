@@ -1,5 +1,13 @@
 
+import * as path from 'path';
 import * as vscode from 'vscode';
+import { loadContext as loadKhTablesContext } from '@khgame/tables/lib/serializer/core';
+import {
+  EnumContextPayload,
+  EnumOptionPayload,
+  convertContextToEnumPayload,
+  findContextDirectoryForPath
+} from './features/khTables/enumContext';
 import { KhTablesModeService, KhTablesModeSnapshot, KhTablesOverride } from './features/khTables/state';
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -46,13 +54,20 @@ interface KhTablesWebviewState {
 }
 
 type HostToWebviewMessage =
-  | { type: HostDocumentMessageType; text: string; khTables: KhTablesWebviewState }
-  | { type: 'khTablesState'; khTables: KhTablesWebviewState };
+  | {
+      type: HostDocumentMessageType;
+      text: string;
+      khTables: KhTablesWebviewState;
+      context?: EnumContextPayload;
+    }
+  | { type: 'khTablesState'; khTables: KhTablesWebviewState; context?: EnumContextPayload };
 
 class CsvEditorProvider implements vscode.CustomTextEditorProvider {
   public static readonly viewType = 'tables.csvEditor';
 
   private readonly updatingDocuments = new Set<string>();
+  private readonly enumContextCache = new Map<string, EnumContextPayload | null>();
+  private readonly contextDirectoryCache = new Map<string, string | undefined>();
 
   private constructor(
     private readonly context: vscode.ExtensionContext,
@@ -92,7 +107,7 @@ class CsvEditorProvider implements vscode.CustomTextEditorProvider {
         return;
       }
 
-      this.postDocumentSnapshot(webview, document, 'externalUpdate');
+      void this.postDocumentSnapshot(webview, document, 'externalUpdate');
     });
 
     webviewPanel.onDidDispose(() => {
@@ -102,43 +117,45 @@ class CsvEditorProvider implements vscode.CustomTextEditorProvider {
     webview.onDidReceiveMessage(async (message: WebviewMessage) => {
       switch (message.type) {
         case 'ready': {
-          this.postDocumentSnapshot(webview, document, 'init');
+          void this.postDocumentSnapshot(webview, document, 'init');
           break;
         }
         case 'update': {
           await this.updateTextDocument(document, message.text ?? '');
-          this.postDocumentSnapshot(webview, document, 'externalUpdate');
+          void this.postDocumentSnapshot(webview, document, 'externalUpdate');
           break;
         }
         case 'requestSave': {
           await this.updateTextDocument(document, message.text ?? '');
           await vscode.workspace.saveAll();
-          this.postDocumentSnapshot(webview, document, 'externalUpdate');
+          void this.postDocumentSnapshot(webview, document, 'externalUpdate');
           break;
         }
         case 'setKhMode': {
-          this.handleKhModeOverride(document, webview, message.override);
+          void this.handleKhModeOverride(document, webview, message.override);
           break;
         }
       }
     });
   }
 
-  private handleKhModeOverride(
+  private async handleKhModeOverride(
     document: vscode.TextDocument,
     webview: vscode.Webview,
     override: KhTablesOverride
-  ): void {
+  ): Promise<void> {
     if (!['on', 'off', 'auto'].includes(override)) {
-      return;
+      return Promise.resolve();
     }
     this.khTablesMode.setOverride(document.uri, override);
     const snapshot = this.khTablesMode.evaluate(document);
+    const context = await this.getEnumContext(document);
     const message: HostToWebviewMessage = {
       type: 'khTablesState',
-      khTables: this.toWebviewState(snapshot)
+      khTables: this.toWebviewState(snapshot),
+      context
     };
-    void webview.postMessage(message);
+    await webview.postMessage(message);
   }
 
   private async updateTextDocument(document: vscode.TextDocument, text: string): Promise<void> {
@@ -161,18 +178,29 @@ class CsvEditorProvider implements vscode.CustomTextEditorProvider {
     }
   }
 
-  private postDocumentSnapshot(
+  private async postDocumentSnapshot(
     webview: vscode.Webview,
     document: vscode.TextDocument,
     type: HostDocumentMessageType
-  ): void {
+  ): Promise<void> {
     const snapshot = this.khTablesMode.evaluate(document);
+    return this.buildAndSendSnapshotMessage(webview, document, type, snapshot);
+  }
+
+  private async buildAndSendSnapshotMessage(
+    webview: vscode.Webview,
+    document: vscode.TextDocument,
+    type: HostDocumentMessageType,
+    snapshot: KhTablesModeSnapshot
+  ): Promise<void> {
+    const context = await this.getEnumContext(document);
     const message: HostToWebviewMessage = {
       type,
       text: document.getText(),
-      khTables: this.toWebviewState(snapshot)
+      khTables: this.toWebviewState(snapshot),
+      context
     };
-    void webview.postMessage(message);
+    await webview.postMessage(message);
   }
 
   private toWebviewState(snapshot: KhTablesModeSnapshot): KhTablesWebviewState {
@@ -186,6 +214,34 @@ class CsvEditorProvider implements vscode.CustomTextEditorProvider {
         confidence: snapshot.detection.confidence
       }
     };
+  }
+
+  private async getEnumContext(document: vscode.TextDocument): Promise<EnumContextPayload | undefined> {
+    const baseDir = path.dirname(document.uri.fsPath);
+    const workspaceRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath;
+    const contextDirectory = await findContextDirectoryForPath(baseDir, {
+      workspaceRoot,
+      cache: this.contextDirectoryCache
+    });
+    if (!contextDirectory) {
+      return undefined;
+    }
+
+    const cached = this.enumContextCache.get(contextDirectory);
+    if (cached !== undefined) {
+      return cached ?? undefined;
+    }
+
+    try {
+      const rawContext = loadKhTablesContext(contextDirectory);
+      const payload = convertContextToEnumPayload(rawContext);
+      this.enumContextCache.set(contextDirectory, payload ?? null);
+      return payload ?? undefined;
+    } catch (error) {
+      console.error(`[tables] Failed to load context from ${contextDirectory}:`, error);
+      this.enumContextCache.set(contextDirectory, null);
+      return undefined;
+    }
   }
 
   private getDocumentRange(document: vscode.TextDocument): vscode.Range {

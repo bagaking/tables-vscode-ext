@@ -455,17 +455,36 @@ body {
   letter-spacing: 0.01em;
 }
 
+.kh-enum-tag[data-source='fallback'] {
+  background: #f1f1f3;
+  color: #3b3b3b;
+  border: 1px dashed rgba(0, 0, 0, 0.2);
+}
+
 .kh-enum-editor {
   width: 100%;
   font: inherit;
-  border: 1px solid var(--vscode-input-border, rgba(255, 255, 255, 0.25));
-  border-radius: 4px;
-  padding: 0.1rem 0.2rem;
-  background: var(--vscode-input-background, #1e1e1e);
+  border: 1px solid var(--vscode-input-border, rgba(255, 255, 255, 0.2));
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.08),
+      rgba(255, 255, 255, 0)
+    ),
+    var(--vscode-input-background, #1e1e1e);
   color: var(--vscode-input-foreground, inherit);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.kh-enum-editor:hover {
+  border-color: var(--vscode-focusBorder, rgba(0, 122, 204, 0.6));
+  box-shadow: inset 0 0 0 1px rgba(0, 122, 204, 0.25);
 }
 
 .kh-enum-editor:focus-visible {
   outline: 1px solid var(--vscode-focusBorder, #007acc);
-  outline-offset: 0;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.25);
 }

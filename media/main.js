@@ -15,6 +15,9 @@
   /**
    * @typedef {{ active: boolean; override: 'auto' | 'on' | 'off'; detection: { hasMarkers: boolean; markRowIndex: number | null; tokenHits: string[]; confidence: number } }} KhTablesViewState
    */
+  /**
+   * @typedef {{ key: string; value: string; description?: string; source?: 'context' | 'fallback' }} EnumOption
+   */
 
   /** @type {KhTablesViewState} */
   let khTablesState = createDefaultKhTablesState();
@@ -53,6 +56,8 @@
   let contextMenuElement = null;
   /** @type {() => void} | null */
   let contextMenuCleanup = null;
+  /** @type {Record<string, EnumOption[]>} */
+  let enumContextOptions = {};
 
   const BRACKET_PAIRS = {
     '(': ')',
@@ -143,6 +148,47 @@
       }
     }
     setStatus('tid copied to clipboard', 'info');
+  }
+
+  /**
+   * @param {{ enums?: Record<string, EnumOption[]> } | undefined} payload
+   */
+  function applyEnumContextPayload(payload) {
+    if (!payload || typeof payload !== 'object' || !payload.enums || typeof payload.enums !== 'object') {
+      enumContextOptions = {};
+      return;
+    }
+
+    const normalized = {};
+    Object.entries(payload.enums).forEach(([enumName, options]) => {
+      if (!Array.isArray(options)) {
+        return;
+      }
+      const cleaned = options
+        .map((option) => {
+          if (!option || typeof option !== 'object') {
+            return null;
+          }
+          const key = typeof option.key === 'string' ? option.key : String(option.key ?? '');
+          const value = typeof option.value === 'string' ? option.value : String(option.value ?? '');
+          if (value.length === 0) {
+            return null;
+          }
+          const description =
+            typeof option.description === 'string' && option.description.trim().length > 0
+              ? option.description.trim()
+              : undefined;
+          const source = option.source === 'fallback' ? 'fallback' : 'context';
+          return { key, value, description, source };
+        })
+        .filter(Boolean);
+
+      if (cleaned.length > 0) {
+        normalized[enumName] = cleaned;
+      }
+    });
+
+    enumContextOptions = normalized;
   }
 
   /** @type {HTMLSpanElement | null} */
@@ -351,12 +397,21 @@
       container.className = 'kh-cell-content';
       const rowIndex = params.data?.__rowIndex;
       const rowClass = typeof rowIndex === 'number' ? getRowClassByIndex(rowIndex) : undefined;
+      if (enumMeta?.tooltip) {
+        container.title = `Options: ${enumMeta.tooltip}`;
+      }
+
+      const optionLookup = new Map();
+      if (enumMeta && Array.isArray(enumMeta.options)) {
+        enumMeta.options.forEach((option) => {
+          if (option && typeof option.value === 'string') {
+            optionLookup.set(option.value, option);
+          }
+        });
+      }
 
       if (rowClass === 'kh-mark-row' || rowClass === 'kh-field-row') {
         container.innerHTML = buildRainbowHtml(value);
-        if (enumMeta?.tooltip) {
-          container.title = `Options: ${enumMeta.tooltip}`;
-        }
         return container;
       }
 
@@ -377,6 +432,15 @@
         badge.style.backgroundColor = palette.background;
         badge.style.color = palette.foreground;
         badge.innerHTML = buildRainbowHtml(token);
+        const optionDetails = optionLookup.get(token);
+        if (optionDetails?.description) {
+          badge.title = optionDetails.description;
+        } else if (optionDetails?.source === 'fallback') {
+          badge.title = 'Fallback literal';
+        }
+        if (optionDetails?.source === 'fallback') {
+          badge.dataset.source = 'fallback';
+        }
         container.appendChild(badge);
       });
 
@@ -394,28 +458,58 @@
     select.setAttribute('aria-label', 'Enum value');
 
     const seen = new Set();
-    const addOption = (value, label) => {
+    const addOption = (value, label, optionMeta) => {
       if (seen.has(value)) {
-        return;
+        return null;
       }
       seen.add(value);
       const option = document.createElement('option');
       option.value = value;
       option.textContent = label ?? value;
+      if (optionMeta?.description) {
+        option.title = optionMeta.description;
+      }
+      if (optionMeta?.source) {
+        option.dataset.source = optionMeta.source;
+      }
       select.appendChild(option);
+      return option;
     };
 
     addOption('', '');
 
-    const values = Array.isArray(params.values) ? params.values : [];
-    values.forEach((optionValue) => {
-      if (typeof optionValue === 'string' && optionValue.trim().length > 0) {
-        addOption(optionValue, optionValue);
+    const options = Array.isArray(params.options) ? params.options : [];
+
+    const buildOptionLabel = (optionMeta) => {
+      if (!optionMeta) {
+        return '';
       }
+      const baseLabel =
+        optionMeta.key && optionMeta.key !== optionMeta.value
+          ? `${optionMeta.key} · ${optionMeta.value}`
+          : optionMeta.key || optionMeta.value;
+      const descriptors = [];
+      if (optionMeta.source === 'fallback') {
+        descriptors.push('fallback');
+      }
+      if (optionMeta.description) {
+        descriptors.push(optionMeta.description);
+      }
+      if (descriptors.length > 0) {
+        return `${baseLabel} — ${descriptors.join(' · ')}`;
+      }
+      return baseLabel;
+    };
+
+    options.forEach((optionMeta) => {
+      if (!optionMeta || typeof optionMeta.value !== 'string' || optionMeta.value.length === 0) {
+        return;
+      }
+      addOption(optionMeta.value, buildOptionLabel(optionMeta), optionMeta);
     });
 
     if (currentValue && !seen.has(currentValue)) {
-      addOption(currentValue, currentValue);
+      addOption(currentValue, `${currentValue} — raw value`);
     }
 
     select.value = currentValue;
@@ -1024,44 +1118,107 @@
     return widths;
   }
 
-  function collectEnumMetadata(columnIndex, markRowIndex) {
-    const counts = new Map();
-    const addValue = (raw) => {
-      if (!raw) {
-        return;
+  function normalizeEnumTokenText(token) {
+    if (typeof token !== 'string') {
+      return '';
+    }
+    let text = token.trim();
+    while (text.endsWith('?')) {
+      text = text.slice(0, -1).trim();
+    }
+    let changed = true;
+    while (changed) {
+      changed = false;
+      if (text.endsWith('[]')) {
+        text = text.slice(0, -2).trim();
+        changed = true;
       }
-      const segments = String(raw)
-        .split('|')
-        .map((segment) => segment.trim())
-        .filter(Boolean);
-      if (segments.length === 0) {
-        counts.set(String(raw).trim(), (counts.get(String(raw).trim()) ?? 0) + 1);
-        return;
-      }
-      segments.forEach((segment) => {
-        counts.set(segment, (counts.get(segment) ?? 0) + 1);
-      });
+    }
+    return text;
+  }
+
+  function parseEnumTokenDetails(token) {
+    const normalized = normalizeEnumTokenText(token);
+    if (!normalized.toLowerCase().startsWith('enum')) {
+      return null;
+    }
+    const openIndex = normalized.indexOf('<');
+    const closeIndex = normalized.lastIndexOf('>');
+    if (openIndex === -1 || closeIndex === -1 || closeIndex <= openIndex + 1) {
+      return null;
+    }
+    const inner = normalized.slice(openIndex + 1, closeIndex);
+    const parts = inner
+      .split('|')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+    if (parts.length === 0) {
+      return null;
+    }
+    const [enumName, ...fallbacks] = parts;
+    return {
+      enumName: enumName.length > 0 ? enumName : undefined,
+      fallbacks: fallbacks.filter((value, index, array) => array.indexOf(value) === index)
     };
+  }
 
-    const skipRows = new Set();
-    if (Number.isFinite(markRowIndex)) {
-      skipRows.add(markRowIndex);
-      skipRows.add(markRowIndex + 1);
+  function collectEnumMetadata(columnIndex, markRowIndex) {
+    const enumToken = getEnumTokenForColumn(columnIndex);
+    const parsed = parseEnumTokenDetails(enumToken);
+    if (!parsed || !parsed.enumName) {
+      return null;
     }
 
-    for (let rowIndex = 0; rowIndex < table.length; rowIndex += 1) {
-      if (skipRows.has(rowIndex)) {
-        continue;
+    const contextOptions = enumContextOptions[parsed.enumName];
+    if (!Array.isArray(contextOptions) || contextOptions.length === 0) {
+      return null;
+    }
+
+    const mergedOptions = [];
+    const seenValues = new Set();
+
+    contextOptions.forEach((option) => {
+      if (!option || typeof option.value !== 'string') {
+        return;
       }
-      addValue(getTableCellValue(rowIndex, columnIndex));
+      const normalizedValue = option.value;
+      if (seenValues.has(normalizedValue)) {
+        return;
+      }
+      seenValues.add(normalizedValue);
+      mergedOptions.push(option);
+    });
+
+    parsed.fallbacks.forEach((fallback) => {
+      if (!fallback || seenValues.has(fallback)) {
+        return;
+      }
+      seenValues.add(fallback);
+      mergedOptions.push({ key: fallback, value: fallback, source: 'fallback' });
+    });
+
+    if (mergedOptions.length === 0) {
+      return null;
     }
 
-    const values = Array.from(counts.keys()).sort((a, b) => a.localeCompare(b));
-    const tooltip = values.length > 0
-      ? values.map((value) => `${value} (${counts.get(value)})`).join(', ')
-      : '';
+    const tooltip = mergedOptions
+      .map((option) => {
+        if (option.description && option.description.length > 0) {
+          return `${option.key}: ${option.description}`;
+        }
+        if (option.source === 'fallback') {
+          return `${option.key} (fallback)`;
+        }
+        return option.key;
+      })
+      .join(', ');
 
-    return { values, counts, tooltip };
+    return {
+      enumName: parsed.enumName,
+      options: mergedOptions,
+      tooltip,
+      values: mergedOptions.map((option) => option.value)
+    };
   }
 
   function calculateInitialColumnWidth(columnIndex, markRowIndex, pinnedRows) {
@@ -1171,7 +1328,7 @@
         lockPinned: index < pinnedDataColumns,
         cellRenderer: enumMeta ? createEnumCellRenderer(enumMeta) : rainbowCellRenderer,
         cellEditor: enumMeta ? EnumSelectEditor : undefined,
-        cellEditorParams: enumMeta ? { values: enumMeta.values } : undefined,
+        cellEditorParams: enumMeta ? { options: enumMeta.options } : undefined,
         cellClass: (params) => composeCellClasses(index, params, tokenStyles),
         cellDataType: 'text'
       });
@@ -1598,10 +1755,12 @@
     switch (message.type) {
       case 'init':
       case 'externalUpdate':
+        applyEnumContextPayload(message.context);
         updateFromText(message.text || '');
         applyKhTablesState(message.khTables);
         break;
       case 'khTablesState':
+        applyEnumContextPayload(message.context);
         applyKhTablesState(message.khTables);
         break;
       default:
