@@ -1,0 +1,52 @@
+{
+  "name": "tables-vscode-ext",
+  "displayName": "Tables CSV Editor",
+  "description": "View and edit CSV files with a modern data grid inside VS Code.",
+  "version": "0.0.1",
+  "publisher": "bagaking",
+  "engines": {
+    "vscode": "^1.84.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCustomEditor:tables.csvEditor",
+    "onCommand:tablesCsvEditor.openFile"
+  ],
+  "main": "./dist/extension.js",
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "tablesCsvEditor.openFile",
+        "category": "Tables",
+        "title": "Open CSV in Tables Editor"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "tables.csvEditor",
+        "displayName": "Tables CSV Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.csv"
+          }
+        ],
+        "priority": "default"
+      }
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/vscode": "^1.84.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "ag-grid-community": "^32.2.1",
+    "papaparse": "^5.4.1"
+  }
+}
