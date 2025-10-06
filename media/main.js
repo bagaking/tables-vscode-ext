@@ -42,6 +42,43 @@
   let columnFitQueued = false;
   /** @type {{ markClasses: string[]; fieldClasses: string[]; dataClasses: string[] }[]} */
   let columnTokenStyles = [];
+  /** @type {number[]} */
+  let columnAutoWidths = [];
+  /** @type {boolean} */
+  let columnWidthsApplied = false;
+
+  const BRACKET_PAIRS = {
+    '(': ')',
+    '[': ']',
+    '{': '}'
+  };
+  const BRACKET_OPENERS = new Set(Object.keys(BRACKET_PAIRS));
+  const BRACKET_CLOSERS = Object.entries(BRACKET_PAIRS).reduce((acc, [open, close]) => {
+    acc[close] = open;
+    return acc;
+  }, {});
+  const BRACKET_DEPTH_CLASSES = [
+    'kh-rainbow-depth-0',
+    'kh-rainbow-depth-1',
+    'kh-rainbow-depth-2',
+    'kh-rainbow-depth-3',
+    'kh-rainbow-depth-4',
+    'kh-rainbow-depth-5'
+  ];
+
+  const APPROX_CHAR_WIDTH = 8;
+  const MIN_COLUMN_WIDTH = 12;
+  const MAX_AUTO_COLUMN_WIDTH = 520;
+  const EMPTY_COLUMN_WIDTH = 12;
+  const COLUMN_WIDTH_BUFFER = 4;
+  const HEADER_WIDTH_BUFFER = 6;
+
+  /** @type {HTMLSpanElement | null} */
+  let textMeasureProbe = null;
+  /** @type {string} */
+  let textMeasureFontSize = '';
+  /** @type {string} */
+  let textMeasureFontFamily = '';
 
 
   function createDefaultKhTablesState() {
@@ -50,6 +87,147 @@
       override: 'auto',
       detection: { hasMarkers: false, markRowIndex: null, tokenHits: [], confidence: 0 }
     };
+  }
+
+  function resolveGridFontDescriptor() {
+    const target = gridElement || document.body;
+    if (!target) {
+      return { size: '12px', family: 'system-ui, sans-serif' };
+    }
+    const styles = window.getComputedStyle(target);
+    const customFontSize = styles.getPropertyValue('--ag-font-size')?.trim();
+    const customFontFamily = styles.getPropertyValue('--ag-font-family')?.trim();
+    const fontSize = customFontSize && customFontSize.length > 0 ? customFontSize : styles.fontSize || '12px';
+    const fontFamily = customFontFamily && customFontFamily.length > 0 ? customFontFamily : styles.fontFamily || 'system-ui, sans-serif';
+    return {
+      size: (fontSize || '12px').trim(),
+      family: (fontFamily || 'system-ui, sans-serif').trim()
+    };
+  }
+
+  function ensureMeasurementProbe() {
+    if (!textMeasureProbe) {
+      textMeasureProbe = document.createElement('span');
+      textMeasureProbe.style.position = 'absolute';
+      textMeasureProbe.style.visibility = 'hidden';
+      textMeasureProbe.style.whiteSpace = 'pre';
+      textMeasureProbe.style.pointerEvents = 'none';
+      textMeasureProbe.style.top = '-10000px';
+      textMeasureProbe.style.left = '-10000px';
+      textMeasureProbe.style.margin = '0';
+      textMeasureProbe.style.padding = '0';
+      textMeasureProbe.style.fontStyle = 'normal';
+      textMeasureProbe.style.fontVariant = 'normal';
+      textMeasureProbe.style.letterSpacing = 'normal';
+      textMeasureProbe.style.textTransform = 'none';
+      document.body.appendChild(textMeasureProbe);
+    }
+    const { size, family } = resolveGridFontDescriptor();
+    if (textMeasureFontSize !== size) {
+      textMeasureFontSize = size;
+      textMeasureProbe.style.fontSize = size;
+    }
+    if (textMeasureFontFamily !== family) {
+      textMeasureFontFamily = family;
+      textMeasureProbe.style.fontFamily = family;
+    }
+  }
+
+  function measureTextWidth(text, fontWeight) {
+    if (!text || text.length === 0) {
+      return 0;
+    }
+    ensureMeasurementProbe();
+    if (textMeasureProbe) {
+      textMeasureProbe.style.fontWeight = fontWeight || '400';
+      textMeasureProbe.textContent = text;
+      const rect = textMeasureProbe.getBoundingClientRect();
+      if (rect && rect.width) {
+        return rect.width;
+      }
+    }
+    return text.length * APPROX_CHAR_WIDTH;
+  }
+
+  function escapeHtml(value) {
+    if (value == null) {
+      return '';
+    }
+    return String(value).replace(/[&<>"']/g, (char) => {
+      switch (char) {
+        case '&':
+          return '&amp;';
+        case '<':
+          return '&lt;';
+        case '>':
+          return '&gt;';
+        case '"':
+          return '&quot;';
+        case "'":
+          return '&#39;';
+        default:
+          return char;
+      }
+    });
+  }
+
+  function buildBracketSpan(char, depth) {
+    const className = BRACKET_DEPTH_CLASSES[Math.abs(depth) % BRACKET_DEPTH_CLASSES.length];
+    return `<span class="kh-bracket ${className}">${escapeHtml(char)}</span>`;
+  }
+
+  function highlightRainbowBrackets(value) {
+    const text = value == null ? '' : String(value);
+    if (text.length === 0) {
+      return '';
+    }
+
+    /** @type {{ open: string; close: string; depth: number }[]} */
+    const stack = [];
+    const fragments = [];
+
+    for (const char of Array.from(text)) {
+      if (BRACKET_OPENERS.has(char)) {
+        const depth = stack.length;
+        stack.push({ open: char, close: BRACKET_PAIRS[char], depth });
+        fragments.push(buildBracketSpan(char, depth));
+        continue;
+      }
+
+      const counterpart = BRACKET_CLOSERS[char];
+      if (counterpart) {
+        let depth = 0;
+        for (let index = stack.length - 1; index >= 0; index -= 1) {
+          if (stack[index].close === char) {
+            depth = stack[index].depth;
+            stack.length = index;
+            break;
+          }
+        }
+        fragments.push(buildBracketSpan(char, depth));
+        continue;
+      }
+
+      fragments.push(escapeHtml(char));
+    }
+
+    return fragments.join('');
+  }
+
+  function rainbowCellRenderer(params) {
+    if (!params) {
+      return '';
+    }
+
+    const value = params.value != null ? String(params.value) : '';
+    if (value.length === 0) {
+      return '';
+    }
+
+    const container = document.createElement('span');
+    container.className = 'kh-cell-content';
+    container.innerHTML = highlightRainbowBrackets(value);
+    return container;
   }
 
   function applyKhTablesState(nextState) {
@@ -162,7 +340,7 @@
         resizable: true,
         sortable: false,
         filter: false,
-        minWidth: 120,
+        minWidth: MIN_COLUMN_WIDTH,
         wrapHeaderText: true,
         autoHeaderHeight: true
       },
@@ -196,7 +374,7 @@
       return;
     }
 
-    const columnIndex = Number.parseInt(colId.replace('c', ''), 10);
+    const columnIndex = parseColumnIndexFromId(colId);
     if (!Number.isFinite(columnIndex)) {
       return;
     }
@@ -268,23 +446,61 @@
     queueFitColumns();
   }
 
+  function parseColumnIndexFromId(colId) {
+    if (typeof colId !== 'string') {
+      return NaN;
+    }
+    if (colId.startsWith('col-')) {
+      return Number.parseInt(colId.slice(4), 10);
+    }
+    if (colId.startsWith('c')) {
+      return Number.parseInt(colId.slice(1), 10);
+    }
+    return Number.parseInt(colId, 10);
+  }
+
   function queueFitColumns() {
     const api = gridOptions.api || gridApi;
-    if (!api || typeof api.sizeColumnsToFit !== 'function') {
+    if (!api || typeof api.setColumnWidth !== 'function') {
       return;
     }
 
     if (columnFitQueued) {
       return;
     }
+    if (columnWidthsApplied) {
+      return;
+    }
 
     columnFitQueued = true;
     requestAnimationFrame(() => {
       columnFitQueued = false;
-      if (!gridElement || gridElement.offsetWidth === 0) {
+      if (!api || !gridElement || gridElement.offsetWidth === 0) {
         return;
       }
-      api.sizeColumnsToFit();
+
+      if (!Array.isArray(columnAutoWidths) || columnAutoWidths.length === 0) {
+        return;
+      }
+
+      const columns = typeof api.getAllDisplayedColumns === 'function'
+        ? api.getAllDisplayedColumns()
+        : typeof api.getColumns === 'function'
+          ? api.getColumns()
+          : [];
+      columns.forEach((column) => {
+        const colId = column.getColId?.();
+        const columnIndex = parseColumnIndexFromId(colId);
+        if (!Number.isFinite(columnIndex)) {
+          return;
+        }
+        const targetWidth = columnAutoWidths[columnIndex];
+        if (!Number.isFinite(targetWidth)) {
+          return;
+        }
+        api.setColumnWidth(column, targetWidth, false);
+      });
+      columnWidthsApplied = true;
     });
   }
 
@@ -326,7 +542,44 @@
     return rowModels.filter((row) => !pinnedIndices.has(row.__rowIndex));
   }
 
+  function deriveInitialColumnWidths(totalColumns) {
+    const widths = new Array(totalColumns);
+    for (let index = 0; index < totalColumns; index += 1) {
+      widths[index] = calculateInitialColumnWidth(index);
+    }
+    return widths;
+  }
+
+  function calculateInitialColumnWidth(columnIndex) {
+    const headerLabel = toColumnLabel(columnIndex);
+    const headerWidth = measureTextWidth(headerLabel, '600') + HEADER_WIDTH_BUFFER;
+
+    let maxContentWidth = 0;
+    for (let rowIndex = 0; rowIndex < table.length; rowIndex += 1) {
+      const row = table[rowIndex];
+      const rawValue = Array.isArray(row) ? row[columnIndex] : undefined;
+      const text = rawValue != null ? String(rawValue) : '';
+      const rowClass = getRowClassByIndex(rowIndex);
+      const fontWeight = rowClass === 'kh-mark-row' || rowClass === 'kh-field-row' ? '600' : '400';
+      const width = measureTextWidth(text, fontWeight);
+      if (width > maxContentWidth) {
+        maxContentWidth = width;
+      }
+    }
+
+    const contentWidth = maxContentWidth > 0
+      ? maxContentWidth + COLUMN_WIDTH_BUFFER
+      : EMPTY_COLUMN_WIDTH;
+
+    const unclampedWidth = Math.max(headerWidth, contentWidth);
+    const normalized = Math.ceil(unclampedWidth);
+    return Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_AUTO_COLUMN_WIDTH, normalized));
+  }
+
   function buildColumnDefs(totalColumns, tokenStyles) {
+    columnAutoWidths = deriveInitialColumnWidths(totalColumns);
+    columnWidthsApplied = false;
+
     const defs = [
       {
         headerName: '#',
@@ -354,10 +607,12 @@
 
     for (let index = 0; index < totalColumns; index += 1) {
       defs.push({
-        colId: `col-${index}`,
         headerName: toColumnLabel(index),
         field: `c${index}`,
         editable: true,
+        minWidth: MIN_COLUMN_WIDTH,
+        width: columnAutoWidths[index],
+        cellRenderer: rainbowCellRenderer,
         cellClass: (params) => composeCellClasses(index, params, tokenStyles),
         cellDataType: 'text'
       });
