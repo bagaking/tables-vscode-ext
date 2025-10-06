@@ -101,8 +101,24 @@
   --ag-selected-row-background-color: color-mix(in srgb, var(--vscode-editor-selectionBackground) 80%, transparent);
   --ag-font-family: var(--vscode-font-family, system-ui, sans-serif);
   --ag-header-column-resize-handle-color: var(--vscode-focusBorder, #007acc);
-  --ag-grid-size: 3px;
-  --ag-row-height: 28px;
-  --ag-header-height: 34px;
-  --ag-cell-horizontal-padding: 6px;
+  --ag-grid-size: 2px;
+  --ag-row-height: 24px;
+  --ag-header-height: 30px;
+  --ag-cell-horizontal-padding: 4px;
+}
+
+.ag-row.kh-mark-row .ag-cell {
+  font-weight: 600;
+  color: var(--vscode-charts-yellow, #f5c542);
+  background: color-mix(in srgb, var(--vscode-editor-selectionBackground) 25%, transparent);
+}
+
+.ag-row.kh-field-row .ag-cell {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 85%, transparent);
+}
+
+.ag-theme-quartz .ag-cell.kh-col-primary-key {
+  font-weight: 600;
+  color: var(--vscode-charts-blue, #4fc3f7);
 }

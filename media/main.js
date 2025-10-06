@@ -69,6 +69,9 @@
       }
     };
     updateKhTablesModeUi();
+    if (gridOptions && (gridOptions.api || gridApi)) {
+      rebuildGrid();
+    }
   }
 
   function updateKhTablesModeUi() {
@@ -101,6 +104,49 @@
     }
   }
 
+  function toColumnLabel(index) {
+    let label = '';
+    let current = index + 1;
+    while (current > 0) {
+      const remainder = (current - 1) % 26;
+      label = String.fromCharCode(65 + remainder) + label;
+      current = Math.floor((current - 1) / 26);
+    }
+    return label;
+  }
+
+  function getCellClass(columnIndex) {
+    if (!khTablesState.active) {
+      return undefined;
+    }
+    if (columnIndex === 0 && khTablesState.detection.hasMarkers) {
+      return 'kh-col-primary-key';
+    }
+    return undefined;
+  }
+
+  function getRowClassByIndex(rowIndex) {
+    if (!khTablesState.active || !khTablesState.detection.hasMarkers) {
+      return undefined;
+    }
+
+    const markRowIndex = khTablesState.detection.markRowIndex ?? 0;
+    if (rowIndex === markRowIndex) {
+      return 'kh-mark-row';
+    }
+    if (rowIndex === markRowIndex + 1) {
+      return 'kh-field-row';
+    }
+    return undefined;
+  }
+
+  function deriveRowClass(params) {
+    if (!params || !params.data || typeof params.data.__rowIndex !== 'number') {
+      return undefined;
+    }
+    return getRowClassByIndex(params.data.__rowIndex);
+  }
+
   function setStatus(message, tone) {
     statusElement.textContent = message || '';
     statusElement.dataset.tone = tone || 'info';
@@ -127,7 +173,8 @@
       },
       rowSelection: 'single',
       animateRows: true,
-      onCellValueChanged: handleCellValueChanged
+      onCellValueChanged: handleCellValueChanged,
+      getRowClass: deriveRowClass
     };
 
     gridApi = window.agGrid.createGrid(gridElement, gridOptions);
@@ -191,9 +238,10 @@
     const columnDefs = [];
     for (let index = 0; index < columnCount; index += 1) {
       columnDefs.push({
-        headerName: `Column ${index + 1}`,
+        headerName: toColumnLabel(index),
         field: `c${index}`,
         editable: true,
+        cellClass: getCellClass(index),
         cellDataType: 'text'
       });
     }
@@ -212,12 +260,18 @@
       return;
     }
 
+    const markRowIndex = khTablesState.detection.markRowIndex ?? 0;
+    const pinnedTopRows = buildPinnedTopRows(rowModels, markRowIndex);
+    const remainingRows = filterPinnedRows(rowModels, pinnedTopRows);
+
     if (typeof api.setGridOption === 'function') {
       api.setGridOption('columnDefs', columnDefs);
-      api.setGridOption('rowData', rowModels);
+      api.setGridOption('rowData', remainingRows);
+      api.setGridOption('pinnedTopRowData', pinnedTopRows);
     } else {
       api.setColumnDefs(columnDefs);
-      api.setRowData(rowModels);
+      api.setPinnedTopRowData(pinnedTopRows);
+      api.setRowData(remainingRows);
     }
 
     queueFitColumns();
@@ -241,6 +295,39 @@
       }
       api.sizeColumnsToFit();
     });
+  }
+
+  function buildPinnedTopRows(rowModels, markRowIndex) {
+    if (!khTablesState.active || !khTablesState.detection.hasMarkers) {
+      return [];
+    }
+
+    const descriptionRowIndex = markRowIndex + 1;
+    const pinned = [];
+
+    rowModels.forEach((row) => {
+      if (row.__rowIndex === markRowIndex || row.__rowIndex === descriptionRowIndex) {
+        pinned.push({ ...row, __pinned: true });
+      }
+    });
+
+    if (pinned.length === 0 && rowModels.length > 0) {
+      pinned.push({ ...rowModels[0], __pinned: true });
+    }
+
+    return pinned.map((row) => ({ ...row, __rowIndex: row.__rowIndex ?? -1 }));
+  }
+
+  function filterPinnedRows(rowModels, pinnedRows) {
+    if (!Array.isArray(rowModels) || rowModels.length === 0) {
+      return [];
+    }
+    if (!Array.isArray(pinnedRows) || pinnedRows.length === 0) {
+      return rowModels;
+    }
+
+    const pinnedIndices = new Set(pinnedRows.map((row) => row.__rowIndex));
+    return rowModels.filter((row) => !pinnedIndices.has(row.__rowIndex));
   }
 
   function parseCsv(csvText) {
