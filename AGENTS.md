@@ -20,3 +20,8 @@ The repository is at its initial commit; adopt concise, present-tense messages a
 
 ## Security & Configuration Tips
 Keep the content security policy in `CsvEditorProvider.getHtmlForWebview` aligned with new resources; add local resource roots when bundling extra scripts. Avoid importing arbitrary node modules into the webview—bundle vetted assets into `media/` or the extension package instead of fetching at runtime.
+## Future Enhancements
+- Add mark-row templates and snippets for `@khgame/tables` decorators to reduce manual token editing.
+- Highlight type tokens and validate inputs using the library parser to surface enum and `$ghost` issues inline.
+- Expose CLI shortcuts for exporting JSON/TS and previewing outputs directly within the extension.
+- Provide cross-sheet navigation and structured tree views to help inspect nested configurations.
