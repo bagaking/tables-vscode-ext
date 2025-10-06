@@ -2,11 +2,10 @@
   const vscode = acquireVsCodeApi();
   const gridElement = document.getElementById('grid');
   const statusElement = document.getElementById('status');
-  const addRowButton = document.getElementById('add-row');
-  const removeRowButton = document.getElementById('remove-row');
-  const addColumnButton = document.getElementById('add-column');
-  const removeColumnButton = document.getElementById('remove-column');
   const saveButton = document.getElementById('save');
+  const rawToggleButton = document.getElementById('toggle-raw');
+  const rawViewElement = document.getElementById('raw-view');
+  const editStatusElement = document.getElementById('edit-status');
 
   const ROW_NUMBER_FIELD = '__rowNumber';
 
@@ -40,12 +39,20 @@
   let gridResizeObserver = null;
   /** @type {boolean} */
   let columnFitQueued = false;
-  /** @type {{ markClasses: string[]; fieldClasses: string[]; dataClasses: string[] }[]} */
+  /** @type {{ markClasses: string[]; fieldClasses: string[]; dataClasses: string[]; columnType: string }[]} */
   let columnTokenStyles = [];
   /** @type {number[]} */
   let columnAutoWidths = [];
   /** @type {boolean} */
   let columnWidthsApplied = false;
+  /** @type {boolean} */
+  let rawViewActive = false;
+  /** @type {number | null} */
+  let rawViewInputTimer = null;
+  /** @type {HTMLDivElement | null} */
+  let contextMenuElement = null;
+  /** @type {() => void} | null */
+  let contextMenuCleanup = null;
 
   const BRACKET_PAIRS = {
     '(': ')',
@@ -72,6 +79,8 @@
   const EMPTY_COLUMN_WIDTH = 12;
   const COLUMN_WIDTH_BUFFER = 4;
   const HEADER_WIDTH_BUFFER = 6;
+  const RAW_VIEW_DEBOUNCE_MS = 250;
+  const CONTEXT_MENU_ID = 'kh-context-menu';
 
   /** @type {HTMLSpanElement | null} */
   let textMeasureProbe = null;
@@ -79,6 +88,8 @@
   let textMeasureFontSize = '';
   /** @type {string} */
   let textMeasureFontFamily = '';
+  /** @type {number | null} */
+  let rawViewInputTimer = null;
 
 
   function createDefaultKhTablesState() {
@@ -133,13 +144,17 @@
     }
   }
 
-  function measureTextWidth(text, fontWeight) {
+  function measureTextWidth(text, options) {
     if (!text || text.length === 0) {
       return 0;
     }
     ensureMeasurementProbe();
     if (textMeasureProbe) {
-      textMeasureProbe.style.fontWeight = fontWeight || '400';
+      const resolved = typeof options === 'object' && options !== null
+        ? options
+        : { fontWeight: typeof options === 'string' ? options : undefined };
+      textMeasureProbe.style.fontWeight = resolved.fontWeight || '400';
+      textMeasureProbe.style.fontStyle = resolved.fontStyle || 'normal';
       textMeasureProbe.textContent = text;
       const rect = textMeasureProbe.getBoundingClientRect();
       if (rect && rect.width) {
@@ -320,9 +335,252 @@
     return getRowClassByIndex(params.data.__rowIndex);
   }
 
+  function ensureContextMenuElement() {
+    if (contextMenuElement) {
+      return contextMenuElement;
+    }
+    const menu = document.createElement('div');
+    menu.id = CONTEXT_MENU_ID;
+    menu.className = 'context-menu';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(menu);
+    contextMenuElement = menu;
+    return menu;
+  }
+
+  function closeContextMenu() {
+    if (contextMenuCleanup) {
+      contextMenuCleanup();
+      contextMenuCleanup = null;
+    }
+    if (contextMenuElement) {
+      contextMenuElement.replaceChildren();
+      contextMenuElement.setAttribute('aria-hidden', 'true');
+      contextMenuElement.style.left = '-9999px';
+      contextMenuElement.style.top = '-9999px';
+    }
+  }
+
+  function openContextMenu(items, clientX, clientY) {
+    if (!Array.isArray(items) || items.length === 0) {
+      return;
+    }
+
+    closeContextMenu();
+
+    const menu = ensureContextMenuElement();
+    const fragment = document.createDocumentFragment();
+
+    items.forEach((item, index) => {
+      if (!item) {
+        return;
+      }
+      if (item.type === 'separator') {
+        const separator = document.createElement('div');
+        separator.className = 'context-menu-separator';
+        separator.setAttribute('role', 'separator');
+        fragment.appendChild(separator);
+        return;
+      }
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = item.label;
+      button.setAttribute('role', 'menuitem');
+      if (item.disabled) {
+        button.disabled = true;
+      } else if (typeof item.action === 'function') {
+        button.addEventListener('click', () => {
+          closeContextMenu();
+          item.action();
+        });
+      }
+      fragment.appendChild(button);
+    });
+
+    menu.replaceChildren(fragment);
+
+    const viewportWidth = document.documentElement.clientWidth;
+    const viewportHeight = document.documentElement.clientHeight;
+    const menuWidth = Math.min(menu.offsetWidth || 200, viewportWidth - 16);
+    const menuHeight = Math.min(menu.offsetHeight || items.length * 28, viewportHeight - 16);
+    const left = Math.min(clientX, viewportWidth - menuWidth - 8);
+    const top = Math.min(clientY, viewportHeight - menuHeight - 8);
+
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    menu.setAttribute('aria-hidden', 'false');
+
+    const dismiss = (event) => {
+      if (event.type === 'keydown' && event.key !== 'Escape') {
+        return;
+      }
+      closeContextMenu();
+    };
+
+    const pointerHandler = (ev) => dismiss(ev);
+    const wheelHandler = (ev) => dismiss(ev);
+    const keyHandler = (ev) => dismiss(ev);
+
+    window.addEventListener('pointerdown', pointerHandler, true);
+    window.addEventListener('wheel', wheelHandler, true);
+    window.addEventListener('keydown', keyHandler, true);
+
+    contextMenuCleanup = () => {
+      window.removeEventListener('pointerdown', pointerHandler, true);
+      window.removeEventListener('wheel', wheelHandler, true);
+      window.removeEventListener('keydown', keyHandler, true);
+    };
+  }
+
+  function buildRowContextMenu(rowIndex, options) {
+    const canRemove = options?.canRemove !== false;
+    const items = [];
+    items.push({
+      label: 'Add Row Above',
+      action: () => addRow(rowIndex - 1)
+    });
+    items.push({
+      label: 'Add Row Below',
+      action: () => addRow(rowIndex)
+    });
+    items.push({ type: 'separator' });
+    items.push({
+      label: 'Remove Row',
+      disabled: table.length <= 1 || !canRemove,
+      action: () => removeRow(rowIndex)
+    });
+    return items;
+  }
+
+  function buildHeaderContextMenu(columnIndex) {
+    const items = [];
+    items.push({
+      label: 'Add Column Left',
+      action: () => addColumn(columnIndex)
+    });
+    items.push({
+      label: 'Add Column Right',
+      action: () => addColumn(columnIndex + 1)
+    });
+    items.push({ type: 'separator' });
+    items.push({
+      label: 'Remove Column',
+      disabled: columnCount <= 1,
+      action: () => removeColumn(columnIndex)
+    });
+    return items;
+  }
+
+  function handleCellContextMenu(params) {
+    if (!params || rawViewActive) {
+      return;
+    }
+    const event = params.event;
+    if (event?.preventDefault) {
+      event.preventDefault();
+    }
+    closeContextMenu();
+
+    const column = params.column;
+    const colId = column?.getColId?.();
+    const node = params.node;
+    if (!column || colId !== ROW_NUMBER_FIELD || !event || typeof event.clientX !== 'number') {
+      return;
+    }
+    const isPinned = node?.rowPinned != null;
+    const rowIndex = typeof node?.rowIndex === 'number' ? node.rowIndex : table.length - 1;
+    const items = buildRowContextMenu(rowIndex, { canRemove: !isPinned });
+    openContextMenu(items, event.clientX, event.clientY);
+  }
+
+  function handleHeaderContextMenu(params) {
+    if (!params || rawViewActive) {
+      return;
+    }
+    const event = params.event;
+    if (event?.preventDefault) {
+      event.preventDefault();
+    }
+    closeContextMenu();
+
+    const column = params.column;
+    const colId = column?.getColId?.();
+    if (!column || !colId || colId === ROW_NUMBER_FIELD || !event || typeof event.clientX !== 'number') {
+      return;
+    }
+
+    const columnIndex = parseColumnIndexFromId(colId);
+    if (!Number.isFinite(columnIndex)) {
+      return;
+    }
+
+    const items = buildHeaderContextMenu(columnIndex);
+    openContextMenu(items, event.clientX, event.clientY);
+  }
+
   function setStatus(message, tone) {
     statusElement.textContent = message || '';
     statusElement.dataset.tone = tone || 'info';
+  }
+
+  function setEditStatus(state, label) {
+    if (!editStatusElement) {
+      return;
+    }
+    editStatusElement.textContent = label;
+    editStatusElement.dataset.state = state;
+  }
+
+  function updateRawViewText(csvText) {
+    if (!rawViewElement || typeof csvText !== 'string') {
+      return;
+    }
+    if (rawViewInputTimer != null) {
+      window.clearTimeout(rawViewInputTimer);
+      rawViewInputTimer = null;
+    }
+    rawViewElement.value = csvText;
+    rawViewElement.removeAttribute('data-error');
+    rawViewElement.removeAttribute('aria-invalid');
+  }
+
+  function applyRawViewState(nextActive) {
+    rawViewActive = Boolean(nextActive);
+    if (!rawToggleButton || !gridElement || !rawViewElement) {
+      return;
+    }
+    closeContextMenu();
+    rawToggleButton.setAttribute('aria-pressed', rawViewActive ? 'true' : 'false');
+    rawToggleButton.textContent = rawViewActive ? 'Table View' : 'Raw CSV';
+    if (rawViewActive) {
+      gridElement.style.display = 'none';
+      gridElement.setAttribute('aria-hidden', 'true');
+      rawViewElement.hidden = false;
+      rawViewElement.setAttribute('aria-hidden', 'false');
+    } else {
+      flushRawViewPendingChanges();
+      rawViewElement.hidden = true;
+      rawViewElement.setAttribute('aria-hidden', 'true');
+      gridElement.style.removeProperty('display');
+      gridElement.setAttribute('aria-hidden', 'false');
+      queueFitColumns();
+    }
+  }
+
+  function toggleRawView() {
+    applyRawViewState(!rawViewActive);
+  }
+
+  function flushRawViewPendingChanges() {
+    if (!rawViewElement) {
+      return;
+    }
+    if (rawViewInputTimer != null) {
+      window.clearTimeout(rawViewInputTimer);
+      rawViewInputTimer = null;
+    }
+    applyRawViewChanges(rawViewElement.value);
   }
 
   function initializeGrid() {
@@ -347,7 +605,9 @@
       rowSelection: 'single',
       animateRows: true,
       onCellValueChanged: handleCellValueChanged,
-      getRowClass: deriveRowClass
+      getRowClass: deriveRowClass,
+      onCellContextMenu: handleCellContextMenu,
+      onHeaderContextMenu: handleHeaderContextMenu
     };
 
     gridApi = window.agGrid.createGrid(gridElement, gridOptions);
@@ -413,8 +673,6 @@
       : null;
 
     columnTokenStyles = deriveTokenStyles(markRowIndex, columnCount);
-    const columnDefs = buildColumnDefs(columnCount, columnTokenStyles);
-
     const rowModels = table.map((row, rowIndex) => {
       const record = { __rowIndex: rowIndex };
       for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
@@ -429,8 +687,8 @@
       return;
     }
 
-    const pinnedTopRows =
-      markRowIndex != null ? buildPinnedTopRows(rowModels, markRowIndex) : [];
+    const pinnedTopRows = markRowIndex != null ? buildPinnedTopRows(rowModels, markRowIndex) : [];
+    const columnDefs = buildColumnDefs(columnCount, columnTokenStyles, markRowIndex, pinnedTopRows);
     const remainingRows = filterPinnedRows(rowModels, pinnedTopRows);
 
     if (typeof api.setGridOption === 'function') {
@@ -460,7 +718,7 @@
   }
 
   function queueFitColumns() {
-    const api = gridOptions.api || gridApi;
+    const api = (gridOptions?.api) || gridApi;
     if (!api || typeof api.setColumnWidth !== 'function') {
       return;
     }
@@ -542,30 +800,67 @@
     return rowModels.filter((row) => !pinnedIndices.has(row.__rowIndex));
   }
 
-  function deriveInitialColumnWidths(totalColumns) {
+  function deriveInitialColumnWidths(totalColumns, markRowIndex, pinnedRows) {
     const widths = new Array(totalColumns);
     for (let index = 0; index < totalColumns; index += 1) {
-      widths[index] = calculateInitialColumnWidth(index);
+      widths[index] = calculateInitialColumnWidth(index, markRowIndex, pinnedRows);
     }
     return widths;
   }
 
-  function calculateInitialColumnWidth(columnIndex) {
+  function calculateInitialColumnWidth(columnIndex, markRowIndex, pinnedRows) {
     const headerLabel = toColumnLabel(columnIndex);
-    const headerWidth = measureTextWidth(headerLabel, '600') + HEADER_WIDTH_BUFFER;
+    const headerWidth = measureTextWidth(headerLabel, { fontWeight: '600' }) + HEADER_WIDTH_BUFFER;
+
+    let columnType = 'default';
+    if (khTablesState.active && khTablesState.detection.hasMarkers && markRowIndex != null) {
+      const markRow = Array.isArray(table[markRowIndex]) ? table[markRowIndex] : [];
+      if (markRow && markRow.length > columnIndex) {
+        columnType = determineColumnType(markRow[columnIndex]);
+      } else if (Array.isArray(pinnedRows)) {
+        const pinnedMarkRow = pinnedRows.find((row) => row.__rowIndex === markRowIndex);
+        if (pinnedMarkRow && Object.prototype.hasOwnProperty.call(pinnedMarkRow, `c${columnIndex}`)) {
+          columnType = determineColumnType(pinnedMarkRow[`c${columnIndex}`]);
+        }
+      }
+    }
 
     let maxContentWidth = 0;
+    const measurementEntries = [];
+
     for (let rowIndex = 0; rowIndex < table.length; rowIndex += 1) {
       const row = table[rowIndex];
       const rawValue = Array.isArray(row) ? row[columnIndex] : undefined;
-      const text = rawValue != null ? String(rawValue) : '';
-      const rowClass = getRowClassByIndex(rowIndex);
-      const fontWeight = rowClass === 'kh-mark-row' || rowClass === 'kh-field-row' ? '600' : '400';
-      const width = measureTextWidth(text, fontWeight);
+      measurementEntries.push({
+        text: rawValue != null ? String(rawValue) : '',
+        rowIndex
+      });
+    }
+
+    if (Array.isArray(pinnedRows) && pinnedRows.length > 0) {
+      const key = `c${columnIndex}`;
+      pinnedRows.forEach((row) => {
+        if (!row) {
+          return;
+        }
+        const value = Object.prototype.hasOwnProperty.call(row, key) ? row[key] : '';
+        measurementEntries.push({
+          text: value != null ? String(value) : '',
+          rowIndex: typeof row.__rowIndex === 'number' ? row.__rowIndex : null
+        });
+      });
+    }
+
+    measurementEntries.forEach((entry) => {
+      const rowClass = typeof entry.rowIndex === 'number' ? getRowClassByIndex(entry.rowIndex) : undefined;
+      const isMarkOrField = rowClass === 'kh-mark-row' || rowClass === 'kh-field-row';
+      const fontWeight = isMarkOrField || columnType === 'at' || columnType === 'alias' || columnType === 'tid' ? '600' : '400';
+      const fontStyle = columnType === 'comment' ? 'italic' : 'normal';
+      const width = measureTextWidth(entry.text, { fontWeight, fontStyle });
       if (width > maxContentWidth) {
         maxContentWidth = width;
       }
-    }
+    });
 
     const contentWidth = maxContentWidth > 0
       ? maxContentWidth + COLUMN_WIDTH_BUFFER
@@ -576,9 +871,10 @@
     return Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_AUTO_COLUMN_WIDTH, normalized));
   }
 
-  function buildColumnDefs(totalColumns, tokenStyles) {
-    columnAutoWidths = deriveInitialColumnWidths(totalColumns);
+  function buildColumnDefs(totalColumns, tokenStyles, markRowIndex, pinnedRows) {
+    columnAutoWidths = deriveInitialColumnWidths(totalColumns, markRowIndex, pinnedRows);
     columnWidthsApplied = false;
+    const pinnedDataColumns = calculatePinnedDataColumns(tokenStyles);
 
     const defs = [
       {
@@ -612,6 +908,8 @@
         editable: true,
         minWidth: MIN_COLUMN_WIDTH,
         width: columnAutoWidths[index],
+        pinned: index < pinnedDataColumns ? 'left' : undefined,
+        lockPinned: index < pinnedDataColumns,
         cellRenderer: rainbowCellRenderer,
         cellClass: (params) => composeCellClasses(index, params, tokenStyles),
         cellDataType: 'text'
@@ -673,10 +971,60 @@
     return styles;
   }
 
+  function calculatePinnedDataColumns(tokenStyles) {
+    if (
+      !khTablesState.active ||
+      !khTablesState.detection.hasMarkers ||
+      !Array.isArray(tokenStyles) ||
+      tokenStyles.length === 0
+    ) {
+      return 0;
+    }
+
+    let count = 0;
+    for (let index = 0; index < tokenStyles.length; index += 1) {
+      const info = tokenStyles[index];
+      if (!info) {
+        break;
+      }
+      if (info.columnType === 'at' || info.columnType === 'alias') {
+        count += 1;
+      } else {
+        break;
+      }
+    }
+    return count;
+  }
+
+  function determineColumnType(tokenText) {
+    const raw = (tokenText || '').trim();
+    const normalized = raw.toLowerCase();
+    if (!raw || raw === '#') {
+      return 'comment';
+    }
+    if (/[\{\}\[\]]/.test(raw) || normalized.includes('struct')) {
+      return 'struct';
+    }
+    if (
+      normalized.includes('alias') ||
+      normalized.startsWith('enum') ||
+      normalized.includes('map') ||
+      normalized.includes('pair')
+    ) {
+      return 'alias';
+    }
+    if (raw.includes('@')) {
+      return 'at';
+    }
+    if (normalized.includes('tid')) {
+      return 'tid';
+    }
+    return 'default';
+  }
+
   function classifyToken(tokenText, fieldText) {
     const raw = (tokenText || '').trim();
     const fieldRaw = (fieldText || '').trim();
-    const normalized = raw.toLowerCase();
     const markClasses = new Set();
     const fieldClasses = new Set();
     const dataClasses = new Set();
@@ -692,45 +1040,58 @@
       dataClasses.add('kh-data-required');
     }
 
-    if (!raw) {
-      return {
-        markClasses: Array.from(markClasses),
-        fieldClasses: Array.from(fieldClasses),
-        dataClasses: Array.from(dataClasses)
-      };
+    const columnType = determineColumnType(raw);
+
+    const typeClass = `kh-col-type-${columnType}`;
+    markClasses.add(typeClass);
+    fieldClasses.add(typeClass);
+    dataClasses.add(typeClass);
+
+    if (columnType === 'comment') {
+      markClasses.add('kh-col-comment');
+      fieldClasses.add('kh-col-comment');
+      dataClasses.add('kh-col-comment');
     }
 
-    if (normalized.includes('error') || normalized.includes('invalid')) {
-      markClasses.add('kh-token-error');
-      fieldClasses.add('kh-token-error');
+    if (columnType === 'struct') {
+      markClasses.add('kh-col-struct');
+      fieldClasses.add('kh-col-struct');
+      dataClasses.add('kh-col-struct');
     }
-    if (raw.includes('@')) {
-      markClasses.add('kh-token-at');
-      fieldClasses.add('kh-token-at');
-    }
-    if (normalized.includes('alias') || normalized.startsWith('enum') || normalized.includes('map') || normalized.includes('pair')) {
-      markClasses.add('kh-token-alias');
-      fieldClasses.add('kh-token-alias');
-    }
-    if (normalized.includes('tid')) {
-      markClasses.add('kh-token-tid');
-      fieldClasses.add('kh-token-tid');
-    }
-    if (/[\{\}\[\]]/.test(raw) || normalized.includes('struct')) {
-      markClasses.add('kh-token-struct');
-      fieldClasses.add('kh-token-struct');
+
+    if (columnType === 'at' || columnType === 'alias' || columnType === 'tid') {
+      markClasses.add('kh-col-emphasis');
+      fieldClasses.add('kh-col-emphasis');
+      dataClasses.add('kh-col-emphasis');
     }
 
     return {
       markClasses: Array.from(markClasses),
       fieldClasses: Array.from(fieldClasses),
-      dataClasses: Array.from(dataClasses)
+      dataClasses: Array.from(dataClasses),
+      columnType
     };
+  }
+
+  function normalizeParsedRows(rawRows) {
+    if (!Array.isArray(rawRows)) {
+      return [[]];
+    }
+    return rawRows.map((row) => (Array.isArray(row) ? row : [row]));
+  }
+
+  function applyRowsToTable(rows) {
+    const normalized = normalizeParsedRows(rows);
+    const inferredColumns = normalized.reduce((max, row) => Math.max(max, row.length), 0);
+    columnCount = Math.max(1, inferredColumns);
+    table = normalized.length > 0 ? normalized : [[]];
+    ensureTableShape();
   }
 
   function parseCsv(csvText) {
     if (typeof csvText !== 'string' || csvText.length === 0) {
-      return [[]];
+      applyRowsToTable([[]]);
+      return;
     }
 
     const parseResult = Papa.parse(csvText, {
@@ -746,14 +1107,59 @@
       setStatus('Ready');
     }
 
-    const rows = Array.isArray(parseResult.data)
-      ? parseResult.data.map((row) => (Array.isArray(row) ? row : [row]))
-      : [[]];
+    applyRowsToTable(parseResult.data);
+  }
 
-    const inferredColumns = rows.reduce((max, row) => Math.max(max, row.length), 0);
-    columnCount = Math.max(1, inferredColumns);
-    table = rows.length > 0 ? rows : [[]];
-    ensureTableShape();
+  function applyRawViewChanges(csvText) {
+    if (!rawViewElement || typeof csvText !== 'string') {
+      return;
+    }
+    if (csvText === lastCsvText) {
+      rawViewElement.removeAttribute('data-error');
+      rawViewElement.removeAttribute('aria-invalid');
+      return;
+    }
+
+    const parseResult = Papa.parse(csvText, {
+      dynamicTyping: false,
+      skipEmptyLines: false
+    });
+
+    if (parseResult.errors && parseResult.errors.length > 0) {
+      const firstError = parseResult.errors[0];
+      const message = firstError.message || 'Failed to parse CSV';
+      setStatus(message, 'error');
+      rawViewElement.setAttribute('data-error', 'true');
+      rawViewElement.setAttribute('aria-invalid', 'true');
+      return;
+    }
+
+    rawViewElement.removeAttribute('data-error');
+    rawViewElement.removeAttribute('aria-invalid');
+    setStatus('Raw view updated', 'info');
+
+    lastCsvText = csvText;
+    newline = detectLineEnding(csvText);
+    trailingNewline = newline.length > 0 && csvText.endsWith(newline);
+    applyRowsToTable(parseResult.data);
+    rebuildGrid();
+    vscode.setState({ csv: csvText });
+    vscode.postMessage({ type: 'update', text: csvText });
+    setEditStatus('dirty', 'Unsaved changes');
+  }
+
+  function handleRawViewInput() {
+    if (!rawViewElement) {
+      return;
+    }
+    const text = rawViewElement.value;
+    if (rawViewInputTimer != null) {
+      window.clearTimeout(rawViewInputTimer);
+    }
+    rawViewInputTimer = window.setTimeout(() => {
+      rawViewInputTimer = null;
+      applyRawViewChanges(text);
+    }, RAW_VIEW_DEBOUNCE_MS);
   }
 
   function updateFromText(csvText) {
@@ -766,6 +1172,8 @@
     trailingNewline = newline.length > 0 && csvText.endsWith(newline);
     parseCsv(csvText);
     rebuildGrid();
+    updateRawViewText(csvText);
+    setEditStatus('saved', 'Saved');
   }
 
   function detectLineEnding(text) {
@@ -796,50 +1204,74 @@
     if (message) {
       setStatus(message, 'info');
     }
+    updateRawViewText(csv);
+    setEditStatus('dirty', 'Unsaved changes');
   }
 
-  function addRow() {
+  function addRow(afterIndex) {
     ensureTableShape();
-    const insertIndex = getFocusedRowIndex() + 1;
+    const baseIndex = typeof afterIndex === 'number' ? afterIndex : getFocusedRowIndex();
+    const clampedBase = Number.isFinite(baseIndex) ? Math.max(-1, Math.min(baseIndex, table.length - 1)) : table.length - 1;
+    const insertIndex = clampedBase + 1;
     const rowTemplate = new Array(columnCount).fill('');
     table.splice(insertIndex, 0, rowTemplate);
     rebuildGrid();
-    focusRow(insertIndex);
+    if (!rawViewActive) {
+      focusRow(insertIndex);
+    }
     sendUpdate('Row added');
   }
 
-  function removeRow() {
+  function removeRow(targetIndex) {
     if (table.length === 0) {
       setStatus('No rows to remove', 'warn');
       return;
     }
-    let targetIndex = getFocusedRowIndex();
-    if (Number.isNaN(targetIndex) || targetIndex < 0) {
-      targetIndex = table.length - 1;
+    let rowIndex = typeof targetIndex === 'number' ? targetIndex : getFocusedRowIndex();
+    if (!Number.isFinite(rowIndex) || rowIndex < 0) {
+      rowIndex = table.length - 1;
     }
-    table.splice(targetIndex, 1);
+    table.splice(rowIndex, 1);
     if (table.length === 0) {
       table.push(new Array(columnCount).fill(''));
     }
     rebuildGrid();
-    focusRow(Math.max(0, targetIndex - 1));
+    if (!rawViewActive) {
+      focusRow(Math.max(0, Math.min(rowIndex, table.length - 1)));
+    }
     sendUpdate('Row removed');
   }
 
-  function addColumn() {
-    columnCount += 1;
+  function addColumn(insertIndex) {
     ensureTableShape();
+    const targetIndex = Number.isFinite(insertIndex) ? Math.max(0, Math.min(insertIndex, columnCount)) : columnCount;
+    table.forEach((row) => {
+      if (Array.isArray(row)) {
+        row.splice(targetIndex, 0, '');
+      }
+    });
+    columnCount += 1;
     rebuildGrid();
     sendUpdate('Column added');
   }
 
-  function removeColumn() {
+  function removeColumn(targetIndex) {
     if (columnCount <= 1) {
       setStatus('Minimum one column required', 'warn');
       return;
     }
+    let columnIndex = Number.isFinite(targetIndex) ? targetIndex : columnCount - 1;
+    columnIndex = Math.max(0, Math.min(columnIndex, columnCount - 1));
+    table.forEach((row) => {
+      if (Array.isArray(row)) {
+        if (row.length > columnIndex) {
+          row.splice(columnIndex, 1);
+        } else {
+          row.splice(row.length - 1, 1);
+        }
+      }
+    });
     columnCount -= 1;
-    ensureTableShape();
     rebuildGrid();
     sendUpdate('Column removed');
   }
@@ -881,6 +1313,8 @@
     lastCsvText = csv;
     vscode.postMessage({ type: 'requestSave', text: csv });
     setStatus('Save requested', 'info');
+    updateRawViewText(csv);
+    setEditStatus('saving', 'Saving…');
   }
 
   function restoreFromState() {
@@ -910,11 +1344,18 @@
     }
   });
 
-  addRowButton.addEventListener('click', addRow);
-  removeRowButton.addEventListener('click', removeRow);
-  addColumnButton.addEventListener('click', addColumn);
-  removeColumnButton.addEventListener('click', removeColumn);
-  saveButton.addEventListener('click', requestSave);
+  if (saveButton) {
+    saveButton.addEventListener('click', requestSave);
+  }
+
+  if (rawToggleButton) {
+    rawToggleButton.addEventListener('click', toggleRawView);
+  }
+
+  if (rawViewElement) {
+    rawViewElement.addEventListener('input', handleRawViewInput);
+    rawViewElement.addEventListener('change', () => applyRawViewChanges(rawViewElement.value));
+  }
 
   if (khModeSelect) {
     khModeSelect.addEventListener('change', () => {
@@ -929,6 +1370,8 @@
   }
 
   updateKhTablesModeUi();
+  applyRawViewState(false);
+  setEditStatus('saved', 'Saved');
 
   initializeGrid();
   restoreFromState();

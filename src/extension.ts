@@ -241,27 +241,37 @@ class CsvEditorProvider implements vscode.CustomTextEditorProvider {
     <title>Tables CSV Editor</title>
   </head>
   <body>
-    <div class="toolbar">
-      <div class="toolbar-group">
-        <button id="add-row">Add Row</button>
-        <button id="remove-row">Remove Row</button>
-        <button id="add-column">Add Column</button>
-        <button id="remove-column">Remove Column</button>
-      </div>
-      <div class="toolbar-group" id="kh-mode">
-        <label for="kh-mode-select">Tables mode</label>
-        <select id="kh-mode-select">
+    <div class="status-bar" role="group" aria-label="Editor status">
+      <div class="status-group" id="kh-mode">
+        <span class="status-label">Mode</span>
+        <select id="kh-mode-select" aria-label="Tables mode">
           <option value="auto">Auto detect</option>
           <option value="on">Force on</option>
           <option value="off">Force off</option>
         </select>
         <span id="kh-mode-status" aria-live="polite"></span>
       </div>
-      <span class="spacer"></span>
+      <div class="status-group" aria-live="polite">
+        <span class="status-label">Edit</span>
+        <span id="edit-status" class="status-value">Saved</span>
+      </div>
+      <div class="status-spacer" aria-hidden="true"></div>
+      <div class="status-group actions">
+        <button id="toggle-raw" aria-pressed="false">Raw CSV</button>
+        <button id="save">Save</button>
+      </div>
       <div id="status" role="status" aria-live="polite"></div>
-      <button id="save">Save</button>
     </div>
-    <div id="grid" class="ag-theme-quartz"></div>
+    <div id="view-container">
+      <div id="grid" class="ag-theme-quartz" aria-label="CSV grid"></div>
+      <textarea
+        id="raw-view"
+        aria-label="Raw CSV"
+        hidden
+        spellcheck="false"
+        wrap="off"
+      ></textarea>
+    </div>
     <script nonce="${nonce}" src="${papaparseScriptUri}"></script>
     <script nonce="${nonce}" src="${agGridScriptUri}"></script>
     <script nonce="${nonce}" src="${scriptUri}"></script>
