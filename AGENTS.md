@@ -21,6 +21,8 @@ The repository is at its initial commit; adopt concise, present-tense messages a
 ## Security & Configuration Tips
 Keep the content security policy in `CsvEditorProvider.getHtmlForWebview` aligned with new resources; add local resource roots when bundling extra scripts. Avoid importing arbitrary node modules into the webview—bundle vetted assets into `media/` or the extension package instead of fetching at runtime.
 ## Future Enhancements
+- Pin mark/field rows and apply Excel-style headers with kh tables detection.
+- Rework kh tables palette: primary columns #333333 background, #CCCCCC text; alternate data rows (#FFFFFF/#EEEEEE); mark-row token-based colors (errors salmon, @ sky blue, alias/enum cerulean, tid lavender; required #AAAAAA, optional #999999).
 - Add mark-row templates and snippets for `@khgame/tables` decorators to reduce manual token editing.
 - Highlight type tokens and validate inputs using the library parser to surface enum and `$ghost` issues inline.
 - Expose CLI shortcuts for exporting JSON/TS and previewing outputs directly within the extension.

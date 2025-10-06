@@ -122,3 +122,108 @@
   font-weight: 600;
   color: var(--vscode-charts-blue, #4fc3f7);
 }
+
+.ag-theme-quartz .ag-header,
+.ag-theme-quartz .ag-pinned-left-header {
+  background: #333333;
+  color: #cccccc;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ag-theme-quartz .ag-header-cell,
+.ag-theme-quartz .ag-header-group-cell {
+  background: transparent;
+  color: inherit;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ag-theme-quartz .ag-header-cell:last-child {
+  border-right: none;
+}
+
+.ag-theme-quartz .kh-row-number-header {
+  background: #333333;
+  color: #cccccc;
+}
+
+.ag-theme-quartz .kh-row-number-cell {
+  background: #333333;
+  color: #cccccc;
+  text-align: right;
+  padding-right: 4px;
+  font-size: 0.75rem;
+  letter-spacing: 0.03em;
+}
+
+.ag-theme-quartz .ag-row-pinned .kh-row-number-cell {
+  background: #333333;
+  color: #cccccc;
+}
+
+.ag-theme-quartz .ag-center-cols-container .ag-row.ag-row-even:not(.kh-mark-row):not(.kh-field-row) .ag-cell {
+  background: #ffffff;
+}
+
+.ag-theme-quartz .ag-center-cols-container .ag-row.ag-row-odd:not(.kh-mark-row):not(.kh-field-row) .ag-cell {
+  background: #eeeeee;
+}
+
+.ag-theme-quartz .ag-center-cols-container .ag-row.ag-row-even:not(.kh-mark-row):not(.kh-field-row) .ag-cell.kh-col-primary-key,
+.ag-theme-quartz .ag-center-cols-container .ag-row.ag-row-odd:not(.kh-mark-row):not(.kh-field-row) .ag-cell.kh-col-primary-key {
+  background: #f7f7f7;
+}
+
+.ag-row.kh-mark-row .kh-token-required,
+.ag-row.kh-field-row .kh-token-required {
+  color: #111111;
+}
+
+.ag-row.kh-mark-row .kh-token-optional,
+.ag-row.kh-field-row .kh-token-optional {
+  color: #333333;
+  font-style: italic;
+}
+
+.ag-row.kh-mark-row .kh-token-at,
+.ag-row.kh-field-row .kh-token-at {
+  color: #1a5fb4;
+  background: #e0ecff;
+}
+
+.ag-row.kh-mark-row .kh-token-alias,
+.ag-row.kh-field-row .kh-token-alias {
+  color: #0d9488;
+  background: #dff5f3;
+}
+
+.ag-row.kh-mark-row .kh-token-tid,
+.ag-row.kh-field-row .kh-token-tid {
+  color: #7c4dff;
+  background: #efe4ff;
+}
+
+.ag-row.kh-mark-row .kh-token-error,
+.ag-row.kh-field-row .kh-token-error {
+  color: #b3261e;
+  background: #fde4e1;
+}
+
+.ag-row.kh-mark-row .kh-token-struct,
+.ag-row.kh-field-row .kh-token-struct {
+  background: linear-gradient(90deg, #ff9a9e, #fad0c4, #fad390);
+  color: #111111;
+}
+
+.ag-row:not(.kh-mark-row):not(.kh-field-row) .kh-data-required {
+  color: #aaaaaa;
+}
+
+.ag-row:not(.kh-mark-row):not(.kh-field-row) .kh-data-optional {
+  color: #999999;
+}
+
+.ag-theme-quartz .ag-row.kh-mark-row .kh-col-primary-key,
+.ag-theme-quartz .ag-row.kh-field-row .kh-col-primary-key {
+  color: #fef08a;
+}
+

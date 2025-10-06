@@ -8,6 +8,8 @@
   const removeColumnButton = document.getElementById('remove-column');
   const saveButton = document.getElementById('save');
 
+  const ROW_NUMBER_FIELD = '__rowNumber';
+
   const khModeSelect = document.getElementById('kh-mode-select');
   const khModeStatus = document.getElementById('kh-mode-status');
 
@@ -38,6 +40,9 @@
   let gridResizeObserver = null;
   /** @type {boolean} */
   let columnFitQueued = false;
+  /** @type {{ markClasses: string[]; fieldClasses: string[]; dataClasses: string[] }[]} */
+  let columnTokenStyles = [];
+
 
   function createDefaultKhTablesState() {
     return {
@@ -113,16 +118,6 @@
       current = Math.floor((current - 1) / 26);
     }
     return label;
-  }
-
-  function getCellClass(columnIndex) {
-    if (!khTablesState.active) {
-      return undefined;
-    }
-    if (columnIndex === 0 && khTablesState.detection.hasMarkers) {
-      return 'kh-col-primary-key';
-    }
-    return undefined;
   }
 
   function getRowClassByIndex(rowIndex) {
@@ -235,16 +230,12 @@
   function rebuildGrid() {
     ensureTableShape();
 
-    const columnDefs = [];
-    for (let index = 0; index < columnCount; index += 1) {
-      columnDefs.push({
-        headerName: toColumnLabel(index),
-        field: `c${index}`,
-        editable: true,
-        cellClass: getCellClass(index),
-        cellDataType: 'text'
-      });
-    }
+    const markRowIndex = khTablesState.detection.hasMarkers
+      ? khTablesState.detection.markRowIndex ?? 0
+      : null;
+
+    columnTokenStyles = deriveTokenStyles(markRowIndex, columnCount);
+    const columnDefs = buildColumnDefs(columnCount, columnTokenStyles);
 
     const rowModels = table.map((row, rowIndex) => {
       const record = { __rowIndex: rowIndex };
@@ -260,8 +251,8 @@
       return;
     }
 
-    const markRowIndex = khTablesState.detection.markRowIndex ?? 0;
-    const pinnedTopRows = buildPinnedTopRows(rowModels, markRowIndex);
+    const pinnedTopRows =
+      markRowIndex != null ? buildPinnedTopRows(rowModels, markRowIndex) : [];
     const remainingRows = filterPinnedRows(rowModels, pinnedTopRows);
 
     if (typeof api.setGridOption === 'function') {
@@ -307,12 +298,12 @@
 
     rowModels.forEach((row) => {
       if (row.__rowIndex === markRowIndex || row.__rowIndex === descriptionRowIndex) {
-        pinned.push({ ...row, __pinned: true });
+        pinned.push({ ...row, __pinned: true, [ROW_NUMBER_FIELD]: '' });
       }
     });
 
     if (pinned.length === 0 && rowModels.length > 0) {
-      pinned.push({ ...rowModels[0], __pinned: true });
+      pinned.push({ ...rowModels[0], __pinned: true, [ROW_NUMBER_FIELD]: '' });
     }
 
     return pinned.map((row) => ({ ...row, __rowIndex: row.__rowIndex ?? -1 }));
@@ -326,8 +317,160 @@
       return rowModels;
     }
 
-    const pinnedIndices = new Set(pinnedRows.map((row) => row.__rowIndex));
+    const pinnedIndices = new Set(
+      pinnedRows
+        .map((row) => row.__rowIndex)
+        .filter((value) => typeof value === 'number' && value >= 0)
+    );
+
     return rowModels.filter((row) => !pinnedIndices.has(row.__rowIndex));
+  }
+
+  function buildColumnDefs(totalColumns, tokenStyles) {
+    const defs = [
+      {
+        headerName: '#',
+        field: ROW_NUMBER_FIELD,
+        pinned: 'left',
+        editable: false,
+        sortable: false,
+        resizable: false,
+        suppressMenu: true,
+        suppressMovable: true,
+        width: 46,
+        minWidth: 34,
+        maxWidth: 60,
+        valueGetter: (params) => {
+          const node = params?.node;
+          if (!node || node.rowPinned) {
+            return '';
+          }
+          return (node.rowIndex ?? 0) + 1;
+        },
+        cellClass: 'kh-row-number-cell',
+        headerClass: 'kh-row-number-header'
+      }
+    ];
+
+    for (let index = 0; index < totalColumns; index += 1) {
+      defs.push({
+        colId: `col-${index}`,
+        headerName: toColumnLabel(index),
+        field: `c${index}`,
+        editable: true,
+        cellClass: (params) => composeCellClasses(index, params, tokenStyles),
+        cellDataType: 'text'
+      });
+    }
+
+    return defs;
+  }
+
+  function composeCellClasses(columnIndex, params, tokenStyles) {
+    const classes = [];
+    const baseClass = getColumnBaseClass(columnIndex);
+    if (baseClass) {
+      classes.push(baseClass);
+    }
+
+    const rowIndex = params?.data?.__rowIndex;
+    const tokenInfo = tokenStyles[columnIndex];
+    const rowClass = typeof rowIndex === 'number' ? getRowClassByIndex(rowIndex) : undefined;
+
+    if (rowClass === 'kh-mark-row' && tokenInfo) {
+      classes.push('kh-mark-cell');
+      classes.push(...tokenInfo.markClasses);
+    } else if (rowClass === 'kh-field-row' && tokenInfo) {
+      classes.push('kh-field-cell');
+      classes.push(...tokenInfo.fieldClasses);
+    } else if (tokenInfo) {
+      classes.push(...tokenInfo.dataClasses);
+    }
+
+    if (classes.length === 0) {
+      return undefined;
+    }
+    return classes.join(' ');
+  }
+
+  function getColumnBaseClass(columnIndex) {
+    if (columnIndex === 0 && khTablesState.detection.hasMarkers) {
+      return 'kh-col-primary-key';
+    }
+    return undefined;
+  }
+
+  function deriveTokenStyles(markRowIndex, totalColumns) {
+    if (!khTablesState.active || markRowIndex == null) {
+      return new Array(totalColumns).fill(undefined);
+    }
+
+    const styles = [];
+    const markRow = Array.isArray(table[markRowIndex]) ? table[markRowIndex] : [];
+    const fieldRow = Array.isArray(table[markRowIndex + 1]) ? table[markRowIndex + 1] : [];
+
+    for (let index = 0; index < totalColumns; index += 1) {
+      const token = markRow[index] != null ? String(markRow[index]) : '';
+      const field = fieldRow[index] != null ? String(fieldRow[index]) : '';
+      styles[index] = classifyToken(token, field);
+    }
+
+    return styles;
+  }
+
+  function classifyToken(tokenText, fieldText) {
+    const raw = (tokenText || '').trim();
+    const fieldRaw = (fieldText || '').trim();
+    const normalized = raw.toLowerCase();
+    const markClasses = new Set();
+    const fieldClasses = new Set();
+    const dataClasses = new Set();
+
+    const optional = raw.endsWith('?') || fieldRaw.endsWith('?');
+    if (optional) {
+      markClasses.add('kh-token-optional');
+      fieldClasses.add('kh-token-optional');
+      dataClasses.add('kh-data-optional');
+    } else {
+      markClasses.add('kh-token-required');
+      fieldClasses.add('kh-token-required');
+      dataClasses.add('kh-data-required');
+    }
+
+    if (!raw) {
+      return {
+        markClasses: Array.from(markClasses),
+        fieldClasses: Array.from(fieldClasses),
+        dataClasses: Array.from(dataClasses)
+      };
+    }
+
+    if (normalized.includes('error') || normalized.includes('invalid')) {
+      markClasses.add('kh-token-error');
+      fieldClasses.add('kh-token-error');
+    }
+    if (raw.includes('@')) {
+      markClasses.add('kh-token-at');
+      fieldClasses.add('kh-token-at');
+    }
+    if (normalized.includes('alias') || normalized.startsWith('enum') || normalized.includes('map') || normalized.includes('pair')) {
+      markClasses.add('kh-token-alias');
+      fieldClasses.add('kh-token-alias');
+    }
+    if (normalized.includes('tid')) {
+      markClasses.add('kh-token-tid');
+      fieldClasses.add('kh-token-tid');
+    }
+    if (/[\{\}\[\]]/.test(raw) || normalized.includes('struct')) {
+      markClasses.add('kh-token-struct');
+      fieldClasses.add('kh-token-struct');
+    }
+
+    return {
+      markClasses: Array.from(markClasses),
+      fieldClasses: Array.from(fieldClasses),
+      dataClasses: Array.from(dataClasses)
+    };
   }
 
   function parseCsv(csvText) {
