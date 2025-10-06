@@ -400,16 +400,21 @@
 
     menu.replaceChildren(fragment);
 
+    menu.setAttribute('aria-hidden', 'false');
+    menu.style.left = '-9999px';
+    menu.style.top = '-9999px';
+
     const viewportWidth = document.documentElement.clientWidth;
     const viewportHeight = document.documentElement.clientHeight;
-    const menuWidth = Math.min(menu.offsetWidth || 200, viewportWidth - 16);
-    const menuHeight = Math.min(menu.offsetHeight || items.length * 28, viewportHeight - 16);
+    const measuredWidth = menu.offsetWidth || 200;
+    const measuredHeight = menu.offsetHeight || items.length * 28;
+    const menuWidth = Math.min(measuredWidth, viewportWidth - 16);
+    const menuHeight = Math.min(measuredHeight, viewportHeight - 16);
     const left = Math.min(clientX, viewportWidth - menuWidth - 8);
     const top = Math.min(clientY, viewportHeight - menuHeight - 8);
 
     menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
-    menu.setAttribute('aria-hidden', 'false');
 
     const dismiss = (event) => {
       if (event.type === 'keydown' && event.key !== 'Escape') {
@@ -417,6 +422,11 @@
       }
       closeContextMenu();
     };
+
+    const firstAction = menu.querySelector('button:not([disabled])');
+    if (firstAction) {
+      firstAction.focus({ preventScroll: true });
+    }
 
     const pointerHandler = (ev) => dismiss(ev);
     const wheelHandler = (ev) => dismiss(ev);
@@ -620,6 +630,7 @@
       gridResizeObserver.observe(gridElement);
     }
     window.addEventListener('resize', queueFitColumns, { passive: true });
+    gridElement.addEventListener('scroll', closeContextMenu, { passive: true });
     queueFitColumns();
   }
 
