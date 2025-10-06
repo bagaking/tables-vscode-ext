@@ -314,7 +314,30 @@
     return container;
   }
 
-  function createEnumCellRenderer() {
+  const ENUM_TAG_PALETTE = [
+    { background: '#e0f2ff', foreground: '#0b4870' },
+    { background: '#fce1ff', foreground: '#6a2f76' },
+    { background: '#e8f7e7', foreground: '#1f5d2d' },
+    { background: '#fff5da', foreground: '#725016' },
+    { background: '#ffecee', foreground: '#7b1c36' },
+    { background: '#e9e6ff', foreground: '#3e2f82' },
+    { background: '#dff7ff', foreground: '#0b4c61' },
+    { background: '#fff1e5', foreground: '#7b4516' }
+  ];
+
+  function pickEnumTagPalette(label) {
+    if (!label) {
+      return ENUM_TAG_PALETTE[0];
+    }
+    let hash = 0;
+    for (let index = 0; index < label.length; index += 1) {
+      hash = (hash * 31 + label.charCodeAt(index)) & 0xffffffff;
+    }
+    const paletteIndex = Math.abs(hash) % ENUM_TAG_PALETTE.length;
+    return ENUM_TAG_PALETTE[paletteIndex] || ENUM_TAG_PALETTE[0];
+  }
+
+  function createEnumCellRenderer(enumMeta) {
     return (params) => {
       if (!params) {
         return '';
@@ -323,12 +346,40 @@
       if (value.length === 0) {
         return '';
       }
+
       const container = document.createElement('span');
       container.className = 'kh-cell-content';
-      const badge = document.createElement('span');
-      badge.className = 'kh-enum-tag';
-      badge.innerHTML = buildRainbowHtml(value);
-      container.appendChild(badge);
+      const rowIndex = params.data?.__rowIndex;
+      const rowClass = typeof rowIndex === 'number' ? getRowClassByIndex(rowIndex) : undefined;
+
+      if (rowClass === 'kh-mark-row' || rowClass === 'kh-field-row') {
+        container.innerHTML = buildRainbowHtml(value);
+        if (enumMeta?.tooltip) {
+          container.title = `Options: ${enumMeta.tooltip}`;
+        }
+        return container;
+      }
+
+      const tokens = value
+        .split('|')
+        .map((token) => token.trim())
+        .filter(Boolean);
+
+      if (tokens.length === 0) {
+        container.innerHTML = buildRainbowHtml(value);
+        return container;
+      }
+
+      tokens.forEach((token) => {
+        const badge = document.createElement('span');
+        badge.className = 'kh-enum-tag';
+        const palette = pickEnumTagPalette(token);
+        badge.style.backgroundColor = palette.background;
+        badge.style.color = palette.foreground;
+        badge.innerHTML = buildRainbowHtml(token);
+        container.appendChild(badge);
+      });
+
       return container;
     };
   }
@@ -973,11 +1024,24 @@
     return widths;
   }
 
-  function collectEnumOptions(columnIndex, markRowIndex) {
-    const options = new Set();
-    if (!Number.isFinite(columnIndex)) {
-      return [];
-    }
+  function collectEnumMetadata(columnIndex, markRowIndex) {
+    const counts = new Map();
+    const addValue = (raw) => {
+      if (!raw) {
+        return;
+      }
+      const segments = String(raw)
+        .split('|')
+        .map((segment) => segment.trim())
+        .filter(Boolean);
+      if (segments.length === 0) {
+        counts.set(String(raw).trim(), (counts.get(String(raw).trim()) ?? 0) + 1);
+        return;
+      }
+      segments.forEach((segment) => {
+        counts.set(segment, (counts.get(segment) ?? 0) + 1);
+      });
+    };
 
     const skipRows = new Set();
     if (Number.isFinite(markRowIndex)) {
@@ -989,13 +1053,15 @@
       if (skipRows.has(rowIndex)) {
         continue;
       }
-      const value = getTableCellValue(rowIndex, columnIndex).trim();
-      if (value) {
-        options.add(value);
-      }
+      addValue(getTableCellValue(rowIndex, columnIndex));
     }
 
-    return Array.from(options).sort((a, b) => a.localeCompare(b));
+    const values = Array.from(counts.keys()).sort((a, b) => a.localeCompare(b));
+    const tooltip = values.length > 0
+      ? values.map((value) => `${value} (${counts.get(value)})`).join(', ')
+      : '';
+
+    return { values, counts, tooltip };
   }
 
   function calculateInitialColumnWidth(columnIndex, markRowIndex, pinnedRows) {
@@ -1076,9 +1142,9 @@
         resizable: false,
         suppressMenu: true,
         suppressMovable: true,
-        width: 46,
-        minWidth: 34,
-        maxWidth: 60,
+        width: 32,
+        minWidth: 24,
+        maxWidth: 40,
         valueGetter: (params) => {
           const node = params?.node;
           if (!node || node.rowPinned) {
@@ -1094,7 +1160,7 @@
     for (let index = 0; index < totalColumns; index += 1) {
       const tokenInfo = tokenStyles[index];
       const enumToken = tokenInfo?.enumToken;
-      const enumOptions = enumToken ? collectEnumOptions(index, markRowIndex ?? null) : null;
+      const enumMeta = enumToken ? collectEnumMetadata(index, markRowIndex ?? null) : null;
       defs.push({
         headerName: toColumnLabel(index),
         field: `c${index}`,
@@ -1103,9 +1169,9 @@
         width: columnAutoWidths[index],
         pinned: index < pinnedDataColumns ? 'left' : undefined,
         lockPinned: index < pinnedDataColumns,
-        cellRenderer: enumToken ? createEnumCellRenderer(enumToken) : rainbowCellRenderer,
-        cellEditor: enumToken ? EnumSelectEditor : undefined,
-        cellEditorParams: enumToken ? { values: enumOptions } : undefined,
+        cellRenderer: enumMeta ? createEnumCellRenderer(enumMeta) : rainbowCellRenderer,
+        cellEditor: enumMeta ? EnumSelectEditor : undefined,
+        cellEditorParams: enumMeta ? { values: enumMeta.values } : undefined,
         cellClass: (params) => composeCellClasses(index, params, tokenStyles),
         cellDataType: 'text'
       });

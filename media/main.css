@@ -223,13 +223,23 @@ body {
   --ag-header-column-resize-handle-color: var(--vscode-focusBorder, #007acc);
   --ag-grid-size: 2px;
   --ag-row-height: 22px;
-  --ag-header-height: 30px;
+  --ag-header-height: 26px;
   --ag-cell-horizontal-padding: 0px;
 }
 
 .ag-theme-quartz .ag-cell {
   color: #000000;
   padding: 0;
+}
+
+.ag-theme-quartz .ag-header-cell,
+.ag-theme-quartz .ag-header-group-cell {
+  padding: 0 4px;
+}
+
+.ag-theme-quartz .ag-header-cell-label {
+  padding: 0;
+  line-height: 1.2;
 }
 
 .ag-row.kh-mark-row .ag-cell,
@@ -268,7 +278,8 @@ body {
 .ag-theme-quartz .kh-row-number-cell {
   background: transparent;
   color: #000000;
-  text-align: right;
+  text-align: left;
+  padding-left: 2px;
   padding-right: 0;
   font-size: 0.75rem;
   letter-spacing: 0.03em;
