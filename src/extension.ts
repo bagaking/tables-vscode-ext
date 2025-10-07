@@ -4,7 +4,6 @@ import * as vscode from 'vscode';
 import { loadContext as loadKhTablesContext } from '@khgame/tables/lib/serializer/core';
 import {
   EnumContextPayload,
-  EnumOptionPayload,
   convertContextToEnumPayload,
   findContextDirectoryForPath
 } from './features/khTables/enumContext';

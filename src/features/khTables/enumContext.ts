@@ -1,5 +1,6 @@
 import * as path from 'path';
 import { promises as fs } from 'fs';
+import type { Stats } from 'fs';
 
 export interface EnumOptionPayload {
   readonly key: string;
@@ -13,7 +14,7 @@ export interface EnumContextPayload {
 }
 
 export interface FileSystemHost {
-  stat(targetPath: string): Promise<fs.Stats>;
+  stat(targetPath: string): Promise<Stats>;
   readdir(targetPath: string): Promise<string[]>;
 }
 

@@ -304,29 +304,33 @@
       return '';
     }
 
-    /** @type {{ open: string; close: string; depth: number }[]} */
+    /** @type {string[]} */
     const stack = [];
     const fragments = [];
 
     for (const char of Array.from(text)) {
       if (BRACKET_OPENERS.has(char)) {
         const depth = stack.length;
-        stack.push({ open: char, close: BRACKET_PAIRS[char], depth });
+        stack.push(BRACKET_PAIRS[char]);
         fragments.push(buildBracketSpan(char, depth));
         continue;
       }
 
-      const counterpart = BRACKET_CLOSERS[char];
-      if (counterpart) {
-        let depth = 0;
+      if (BRACKET_CLOSERS[char]) {
+        let matchedIndex = -1;
         for (let index = stack.length - 1; index >= 0; index -= 1) {
-          if (stack[index].close === char) {
-            depth = stack[index].depth;
-            stack.length = index;
+          if (stack[index] === char) {
+            matchedIndex = index;
+            stack.splice(index, 1);
             break;
           }
         }
-        fragments.push(buildBracketSpan(char, depth));
+
+        if (matchedIndex >= 0) {
+          fragments.push(buildBracketSpan(char, matchedIndex));
+        } else {
+          fragments.push(escapeHtml(char));
+        }
         continue;
       }
 

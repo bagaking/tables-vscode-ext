@@ -385,6 +385,12 @@ body {
 
 .ag-theme-quartz .kh-col-struct {
   font-weight: 600;
+  color: #000000;
+}
+
+.ag-row.kh-mark-row .kh-col-struct,
+.ag-row.kh-field-row .kh-col-struct {
+  color: #000000 !important;
 }
 
 .ag-row.kh-mark-row .kh-token-optional,
