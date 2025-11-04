@@ -1,37 +1,81 @@
 # Tables CSV Editor
 
-一个基于 VS Code Webview 的 CSV 表格编辑器扩展，内置 AG Grid 数据网格，让你直接在 VS Code 中以现代表格界面查看和修改本地 CSV 文件。
+在 VS Code 中以现代表格体验编辑 CSV，针对 @khgame/tables 提供原生支持：自动识别 Mark/Desc 行与类型令牌、枚举下拉与标签化展示、连续主键/别名/枚举列固定等。
 
-## 主要能力
+## 功能亮点
 
-- 🔄 自动把 `*.csv` 文件映射成可编辑的 AG Grid 表格视图
-- ✏️ 单元格实时编辑，自动同步到原始 CSV 文本
-- ➕ 快捷操作按钮：新增 / 删除行与列
-- 💾 一键保存按钮，触发 VS Code 保存流程
-- 👀 自动响应外部（例如 Git 变更）对 CSV 的更新
+- 表格编辑（AG Grid）
+  - 单元格实时编辑，文本与表格双向同步；行/列右键菜单：Add/Remove Row、Add/Remove Column
+  - 自动列宽（测量 Header/内容、最小 12px）；行号列固定在左侧
+  - 置顶显示 Mark 与 Desc 行；连续 `@/alias/enum` 数据列自动固定在左侧
+  - 结构化括号 `()[]{}` 彩虹深度着色；可选/必选标记、注释列斜体、类型列加粗
 
-## 使用方式
+- Raw 文本视图（增强）
+  - 分隔符彩虹着色（逗号/分号/Tab，按列序循环），辅助对齐阅读
+  - 数值高亮：
+    - 整个单元格都是数字时整格高亮（含引号包裹的数值）
+    - 单元格中出现的数字片段按整数/浮点区分着色
+  - 仍基于 `Papa.parse` 保持原始换行风格与末尾换行
 
-1. 安装依赖并编译扩展：
+- 原生 @khgame/tables 支持（0 配置）
+  - 自动检测 Mark Row（前 16 行采样，命中 `@/$ghost/$strict/enum<...>/map/pair/...` 等令牌且置信度阈值达标）
+  - 列类型判定与配色：`@/alias/enum/tid/struct/comment/default`
+  - 枚举编辑与展示：
+    - 读取工作区或上级目录中的 `context.*.json`（含 `context/`、`contexts/`、`.context/` 子目录）并合并为枚举候选
+    - 数据行以标签样式展示，支持 `enum<Name|Fallback1|...>` 的回退项（标记 `fallback`）
+    - 单元格编辑为下拉选择（保留当前非候选值为 raw value）
+  - 便利操作：行号右键可复制首个 `tid` 列；Mark/Desc 行固定置顶；连续主键/别名/枚举列固定在左侧
 
-   ```bash
-   npm install
-   npm run compile
-   ```
+- 体验与可访问性
+  - 顶部状态栏：Mode（Auto/On/Off）、编辑状态（Saved/Unsaved/Saving…）、Raw/Table 切换、Save
+  - 自动响应外部变更（例如 Git 切换分支）；ARIA 属性与键盘可用性
+  - 遵循 VS Code 主题变量与严格的 Webview CSP
 
-2. 在 VS Code 中按 `F5` 启动扩展开发主机，或者打包后安装。
-3. 打开任何 CSV 文件，默认会以“Tables CSV Editor”方式呈现；也可以通过命令面板执行 `Open CSV in Tables Editor`。
+## 安装与使用
 
-## 技术选型
+1) 安装依赖并编译：
 
-- Web 前端：`ag-grid-community` 最新社区版 + `papaparse`
-- VS Code API：`CustomTextEditorProvider` 自定义文本编辑器，用于双向同步文本与 Webview
-- TypeScript：主扩展逻辑；前端脚本为纯 ES 模块，方便在 Webview 中直接加载
+```bash
+npm install
+npm run compile
+```
 
-## 开发提示
+2) 开发调试：在 VS Code 中按 `F5` 启动 Extension Development Host。
 
-- 所有 Webview 静态资源位于 `media/`
-- 执行 `npm run watch` 可以在保存 TypeScript 时自动重新编译到 `dist/`
-- 若要扩展更多网格功能（排序、过滤等），可以直接修改 `media/main.js` 中的 `gridOptions`
+3) 打开任意 `*.csv` 文件即进入编辑器；或在命令面板执行 `Open CSV in Tables Editor`。
 
-欢迎根据项目需求继续拓展，例如增加多文件批量浏览、Schema 校验、批注等能力。
+## 常见工作流
+
+- 在表格视图编辑 → 顶部点击 Save 保存到文件。
+- 切换到 Raw 文本视图核对分隔与数值格式（分隔符/数字已高亮）。
+- 针对 @khgame/tables 的表：
+  - 自动识别 Mark/Desc；类型列着色与强调；枚举列可下拉选择并以标签展示；连续主键/别名/枚举列固定。
+
+## 项目结构
+
+- `src/extension.ts` 扩展入口，注册自定义编辑器与 Webview
+- `media/` Webview 前端（`main.js`/`main.css`）
+- `src/features/khTables/*` KH Tables 检测、状态与枚举上下文解析
+- `dist/` TypeScript 编译输出
+- `example/` 示例 CSV（可用于手动冒烟）
+
+## 安全与内容安全策略（CSP）
+
+- Webview 仅开放 `media/` 与内置依赖资源；`default-src 'none'`，脚本使用 `nonce`，不从网络拉取动态脚本。
+
+## 发行与打包
+
+- `npx vsce package` 生成 `.vsix` 包；本仓库携带 `.vscodeignore` 避免将无关文件（如 `AGENTS.md`、测试、示例、源码）打入。
+
+### 脚本命令（本地/发布）
+
+- 本地打包：`npm run release:package`（等价：编译 + `vsce package`）
+- 本地安装：`npm run install:local`（自动安装最新生成的 `.vsix` 到当前 VS Code）
+- 发布到 VS Code Marketplace（需提前设置 `VSCE_PAT` 或交互登录）：
+  - `npm run publish:marketplace`（使用当前版本号）
+  - `npm run publish:marketplace:patch|minor|major`（自动 bump 版本并发布）
+- 发布到 Open VSX：`OVSX_TOKEN=xxxx npm run publish:openvsx`
+
+---
+
+欢迎提交 Issue/PR：补充更多 @khgame/tables 能力（模板/校验/导出等）或优化 Raw 视图（配色/开关/性能）。

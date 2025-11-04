@@ -160,6 +160,53 @@ body {
   border: 1px solid var(--vscode-errorForeground, #f48771);
 }
 
+/* Raw CSV overlay: shows colored separators above the textarea without intercepting input */
+#raw-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  /* match textarea padding dynamically via inline style; default provides a fallback */
+  padding: 0.75rem 1rem;
+  z-index: 2; /* above textarea text */
+}
+
+#raw-overlay[hidden] {
+  display: none;
+}
+
+#raw-overlay-pre {
+  margin: 0;
+  white-space: pre;
+  font-family: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  tab-size: 2;
+  color: transparent; /* show only colored separators inside */
+}
+
+/* Elements that the overlay renders to mask underlying textarea text */
+.raw-token {
+  background: var(--vscode-editor-background, #1e1e1e);
+}
+
+.raw-sep { font-weight: 600; }
+.raw-str { color: var(--vscode-terminal-ansiGreen, #34d399); }
+.raw-num { color: var(--vscode-terminal-ansiYellow, #f59e0b); }
+.raw-int { color: var(--vscode-terminal-ansiYellow, #f59e0b); }
+.raw-float { color: var(--vscode-terminal-ansiBlue, #60a5fa); }
+.raw-cell-num {
+  color: var(--vscode-terminal-ansiCyan, #22d3ee);
+  font-weight: 600;
+  background: color-mix(in srgb, #22d3ee 10%, transparent);
+  border-radius: 2px;
+}
+
+/* Line-level tints for KH Tables special rows */
+.raw-line { background: transparent; }
+.raw-line.raw-mark { background: color-mix(in srgb, #c1c1c1 28%, transparent); }
+.raw-line.raw-desc { background: color-mix(in srgb, #c1c1c1 18%, transparent); }
+
 .context-menu {
   position: fixed;
   min-width: 160px;

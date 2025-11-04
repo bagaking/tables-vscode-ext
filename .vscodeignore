@@ -1,0 +1,11 @@
+.git/**
+.github/**
+.serena/**
+.vscode/**
+tests/**
+example/**
+src/**
+**/*.map
+tsconfig.json
+pnpm-lock.yaml
+AGENTS.md

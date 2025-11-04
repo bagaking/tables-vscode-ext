@@ -18,7 +18,19 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "mocha -r ts-node/register tests/**/*.test.ts"
+    "test": "mocha -r ts-node/register tests/**/*.test.ts",
+    "vscode:prepublish": "npm run compile",
+    "package:vsix": "npx vsce package",
+    "install:local": "sh -c 'code --install-extension \"$(ls -t *.vsix | head -n1)\"'",
+    "publish:marketplace": "npx vsce publish",
+    "publish:marketplace:patch": "npm version patch && npx vsce publish",
+    "publish:marketplace:minor": "npm version minor && npx vsce publish",
+    "publish:marketplace:major": "npm version major && npx vsce publish",
+    "publish:openvsx": "npx ovsx publish -p $OVSX_TOKEN",
+    "release:package": "npm run compile && npm run package:vsix",
+    "release:patch": "npm run compile && npm run publish:marketplace:patch",
+    "release:minor": "npm run compile && npm run publish:marketplace:minor",
+    "release:major": "npm run compile && npm run publish:marketplace:major"
   },
   "contributes": {
     "commands": [
@@ -50,7 +62,9 @@
     "chai": "^4.4.1",
     "mocha": "^10.4.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "ovsx": "^0.8.3",
+    "vsce": "^2.15.0"
   },
   "dependencies": {
     "@khgame/tables": "0.2.8",

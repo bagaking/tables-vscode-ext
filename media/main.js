@@ -5,6 +5,10 @@
   const saveButton = document.getElementById('save');
   const rawToggleButton = document.getElementById('toggle-raw');
   const rawViewElement = document.getElementById('raw-view');
+  /** @type {HTMLDivElement | null} */
+  let rawOverlayElement = null;
+  /** @type {HTMLPreElement | null} */
+  let rawOverlayPre = null;
   const editStatusElement = document.getElementById('edit-status');
 
   const ROW_NUMBER_FIELD = '__rowNumber';
@@ -86,6 +90,271 @@
   const HEADER_WIDTH_BUFFER = 6;
   const RAW_VIEW_DEBOUNCE_MS = 250;
   const CONTEXT_MENU_ID = 'kh-context-menu';
+
+  // --- Raw CSV overlay (colored separators) ---
+  function ensureRawOverlay() {
+    if (!rawOverlayElement) {
+      const container = document.createElement('div');
+      container.id = 'raw-overlay';
+      container.setAttribute('aria-hidden', 'true');
+      const pre = document.createElement('pre');
+      pre.id = 'raw-overlay-pre';
+      container.appendChild(pre);
+      const host = document.getElementById('view-container') || document.body;
+      host.appendChild(container);
+      rawOverlayElement = container;
+      rawOverlayPre = pre;
+    }
+    if (rawViewElement && rawOverlayElement) {
+      const cs = window.getComputedStyle(rawViewElement);
+      rawOverlayElement.style.paddingTop = cs.paddingTop;
+      rawOverlayElement.style.paddingRight = cs.paddingRight;
+      rawOverlayElement.style.paddingBottom = cs.paddingBottom;
+      rawOverlayElement.style.paddingLeft = cs.paddingLeft;
+    }
+  }
+
+  function setRawOverlayVisible(visible) {
+    ensureRawOverlay();
+    if (!rawOverlayElement) {
+      return;
+    }
+    if (visible) {
+      rawOverlayElement.removeAttribute('hidden');
+      syncRawOverlayScroll();
+      updateRawOverlayContent(rawViewElement ? rawViewElement.value : '');
+    } else {
+      rawOverlayElement.setAttribute('hidden', 'true');
+    }
+  }
+
+  function syncRawOverlayScroll() {
+    if (!rawViewElement || !rawOverlayPre) {
+      return;
+    }
+    const x = Number(rawViewElement.scrollLeft) || 0;
+    const y = Number(rawViewElement.scrollTop) || 0;
+    rawOverlayPre.style.transform = `translate(${-x}px, ${-y}px)`;
+  }
+
+  function escapeHtmlLite(text) {
+    return String(text).replace(/[&<>"']/g, (ch) => {
+      switch (ch) {
+        case '&':
+          return '&amp;';
+        case '<':
+          return '&lt;';
+        case '>':
+          return '&gt;';
+        case '"':
+          return '&quot;';
+        case "'":
+          return '&#39;';
+        default:
+          return ch;
+      }
+    });
+  }
+
+  function buildRawOverlayHtml(text) {
+    if (text == null || text.length === 0) {
+      return '';
+    }
+    let html = '';
+    let inQuotes = false;
+    let col = 0;
+    for (let i = 0; i < text.length; i += 1) {
+      const ch = text[i];
+      if (ch === '"') {
+        if (i + 1 < text.length && text[i + 1] === '"') {
+          html += '""';
+          i += 1;
+          continue;
+        }
+        inQuotes = !inQuotes;
+        html += '"';
+        continue;
+      }
+      if (ch === '\r') {
+        continue;
+      }
+      if (ch === '\n') {
+        html += '\n';
+        // Reset column cycling at line break for readability
+        col = 0;
+        continue;
+      }
+      const isSep = ch === ',' || ch === ';' || ch === '\t';
+      if (!inQuotes && isSep) {
+        const depthClass = BRACKET_DEPTH_CLASSES[Math.abs(col) % BRACKET_DEPTH_CLASSES.length];
+        const content = ch === '\t' ? '\t' : escapeHtmlLite(ch);
+        html += `<span class="raw-sep ${depthClass}">${content}</span>`;
+        col += 1;
+        continue;
+      }
+      html += escapeHtmlLite(ch);
+    }
+    return html;
+  }
+
+  // Enhanced version: token coloring (strings, ints, floats) and KH mark/desc tint
+  function buildRawOverlayHtmlEnhanced(text) {
+    if (text == null || text.length === 0) {
+      return '';
+    }
+    let html = '';
+    let col = 0; // column index within the current CSV row
+    let row = 0; // 0-based row index
+
+    const depthClassForCol = () => BRACKET_DEPTH_CLASSES[Math.abs(col) % BRACKET_DEPTH_CLASSES.length];
+    const lineClassForRow = () => {
+      if (khTablesState && khTablesState.active && khTablesState.detection?.hasMarkers) {
+        const mr = typeof khTablesState.detection.markRowIndex === 'number'
+          ? Math.max(0, Math.floor(khTablesState.detection.markRowIndex))
+          : -1;
+        if (row === mr) return 'raw-mark';
+        if (row === mr + 1) return 'raw-desc';
+      }
+      return '';
+    };
+
+    const isNumberLiteral = (s) => {
+      if (!s) return false;
+      const t = s.trim();
+      return /^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(t);
+    };
+
+    const renderNumberRuns = (s) => {
+      let out = '';
+      for (let i = 0; i < s.length; i += 1) {
+        const ch = s[i];
+        if (ch === '-' || (ch >= '0' && ch <= '9')) {
+          let j = i;
+          let seenDigit = false, seenDot = false, seenExp = false;
+          if (s[j] === '-') j += 1;
+          while (j < s.length) {
+            const cj = s[j];
+            if (cj >= '0' && cj <= '9') { seenDigit = true; j += 1; continue; }
+            if (!seenDot && cj === '.') { seenDot = true; j += 1; continue; }
+            if (!seenExp && (cj === 'e' || cj === 'E')) {
+              const k = j + 1;
+              const sign = (k < s.length && (s[k] === '+' || s[k] === '-')) ? 1 : 0;
+              const next = k + sign;
+              if (next < s.length && s[next] >= '0' && s[next] <= '9') {
+                seenExp = true; j = next + 1; while (j < s.length && s[j] >= '0' && s[j] <= '9') j += 1; continue;
+              }
+            }
+            break;
+          }
+          if (seenDigit) {
+            const raw = s.slice(i, j);
+            const kind = (seenDot || seenExp) ? 'raw-float' : 'raw-int';
+            out += `<span class=\"raw-token raw-num ${kind}\">${escapeHtmlLite(raw)}</span>`;
+            i = j - 1;
+            continue;
+          }
+        }
+        out += escapeHtmlLite(ch);
+      }
+      return out;
+    };
+
+    const renderField = (rawField, quoted) => {
+      // rawField is the exact substring for the field (including quotes if quoted)
+      if (!quoted) {
+        if (isNumberLiteral(rawField)) {
+          return `<span class=\"raw-token raw-cell-num\">${escapeHtmlLite(rawField)}</span>`;
+        }
+        return renderNumberRuns(rawField);
+      }
+      // quoted: detect numeric-only inside quotes
+      let inner = rawField;
+      if (rawField.length >= 2 && rawField[0] === '"' && rawField[rawField.length - 1] === '"') {
+        inner = rawField.substring(1, rawField.length - 1);
+      }
+      const dequoted = inner.replace(/""/g, '"');
+      if (isNumberLiteral(dequoted)) {
+        return `<span class=\"raw-token raw-cell-num\">${escapeHtmlLite(rawField)}</span>`;
+      }
+      // non-numeric full-quoted: keep quotes, but still color number runs inside inner
+      const coloredInner = renderNumberRuns(inner);
+      return `\"${coloredInner}\"`;
+    };
+
+    let i = 0;
+    let openLineClass = lineClassForRow();
+    html += `<span class=\"raw-line ${openLineClass}\">`;
+
+    while (i < text.length) {
+      const ch = text[i];
+      if (ch === '\r') { i += 1; continue; }
+      if (ch === '\n') {
+        html += `</span>\n`;
+        row += 1; col = 0;
+        openLineClass = lineClassForRow();
+        html += `<span class=\"raw-line ${openLineClass}\">`;
+        i += 1; continue;
+      }
+
+      // parse one field
+      let fieldStart = i;
+      let quoted = false;
+      if (ch === '"') {
+        quoted = true;
+        i += 1;
+        while (i < text.length) {
+          if (text[i] === '"') {
+            if (i + 1 < text.length && text[i + 1] === '"') { i += 2; continue; }
+            i += 1; // consume closing quote
+            break;
+          }
+          i += 1;
+        }
+      } else {
+        // unquoted: consume until sep or newline or CR
+        while (i < text.length) {
+          const c = text[i];
+          if (c === ',' || c === ';' || c === '\t' || c === '\n' || c === '\r') { break; }
+          i += 1;
+        }
+      }
+      const fieldRaw = text.slice(fieldStart, i);
+      html += renderField(fieldRaw, quoted);
+
+      // now optional separator
+      if (i < text.length) {
+        const c = text[i];
+        if (c === ',' || c === ';' || c === '\t') {
+          const content = c === '\t' ? '\t' : escapeHtmlLite(c);
+          html += `<span class=\"raw-token raw-sep ${depthClassForCol()}\">${content}</span>`;
+          col += 1;
+          i += 1;
+          continue;
+        }
+        // next loop handles newline/CR
+      }
+    }
+
+    html += '</span>';
+    return html;
+  }
+
+  function updateRawOverlayContent(text) {
+    ensureRawOverlay();
+    if (!rawOverlayPre) {
+      return;
+    }
+    rawOverlayPre.innerHTML = buildRawOverlayHtmlEnhanced(text || '');
+    syncRawOverlayScroll();
+  }
+
+  // Public facade (simple module) for Raw overlay to keep responsibilities isolated
+  const rawOverlay = {
+    ensure: ensureRawOverlay,
+    setVisible: setRawOverlayVisible,
+    update: updateRawOverlayContent,
+    syncScroll: syncRawOverlayScroll
+  };
 
   /**
    * @param {number | null | undefined} columnIndex
@@ -856,6 +1125,7 @@
     rawViewElement.value = csvText;
     rawViewElement.removeAttribute('data-error');
     rawViewElement.removeAttribute('aria-invalid');
+    rawOverlay.update(csvText);
   }
 
   function applyRawViewState(nextActive) {
@@ -871,12 +1141,14 @@
       gridElement.setAttribute('aria-hidden', 'true');
       rawViewElement.hidden = false;
       rawViewElement.setAttribute('aria-hidden', 'false');
+      rawOverlay.setVisible(true);
     } else {
       flushRawViewPendingChanges();
       rawViewElement.hidden = true;
       rawViewElement.setAttribute('aria-hidden', 'true');
       gridElement.style.removeProperty('display');
       gridElement.setAttribute('aria-hidden', 'false');
+      rawOverlay.setVisible(false);
       queueFitColumns();
     }
   }
@@ -1543,6 +1815,7 @@
     if (csvText === lastCsvText) {
       rawViewElement.removeAttribute('data-error');
       rawViewElement.removeAttribute('aria-invalid');
+      rawOverlay.update(csvText);
       return;
     }
 
@@ -1557,6 +1830,7 @@
       setStatus(message, 'error');
       rawViewElement.setAttribute('data-error', 'true');
       rawViewElement.setAttribute('aria-invalid', 'true');
+      rawOverlay.update(csvText);
       return;
     }
 
@@ -1572,6 +1846,7 @@
     vscode.setState({ csv: csvText });
     vscode.postMessage({ type: 'update', text: csvText });
     setEditStatus('dirty', 'Unsaved changes');
+    rawOverlay.update(csvText);
   }
 
   function handleRawViewInput() {
@@ -1579,6 +1854,7 @@
       return;
     }
     const text = rawViewElement.value;
+    rawOverlay.update(text);
     if (rawViewInputTimer != null) {
       window.clearTimeout(rawViewInputTimer);
     }
@@ -1783,6 +2059,7 @@
   if (rawViewElement) {
     rawViewElement.addEventListener('input', handleRawViewInput);
     rawViewElement.addEventListener('change', () => applyRawViewChanges(rawViewElement.value));
+    rawViewElement.addEventListener('scroll', rawOverlay.syncScroll);
   }
 
   if (khModeSelect) {
