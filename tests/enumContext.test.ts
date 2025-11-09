@@ -130,6 +130,17 @@ describe('enumContext utilities', () => {
       expect(result).to.equal(workspaceRoot);
     });
 
+    it('does not treat sibling paths with matching prefixes as workspace children', async () => {
+      const siblingWorkspace = path.join(tempRoot, 'workspace-extra');
+      const siblingConfig = path.join(siblingWorkspace, 'configs', 'items');
+      await writeContextFile(siblingConfig);
+      await writeContextFile(workspaceRoot);
+
+      const result = await findContextDirectoryForPath(siblingConfig, { workspaceRoot });
+
+      expect(result).to.be.undefined;
+    });
+
     it('returns undefined when no context files are found', async () => {
       const result = await findContextDirectoryForPath(configsDir, { workspaceRoot });
       expect(result).to.be.undefined;

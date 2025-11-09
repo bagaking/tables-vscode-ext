@@ -74,6 +74,11 @@ function normalizePath(target: string | undefined): string | undefined {
   return target ? path.resolve(target) : undefined;
 }
 
+function isWithinPathBoundary(target: string, boundary: string): boolean {
+  const relative = path.relative(boundary, target);
+  return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
 export async function findContextDirectoryForPath(
   baseDir: string,
   options: {
@@ -94,6 +99,13 @@ export async function findContextDirectoryForPath(
   }
 
   const normalizedWorkspaceRoot = normalizePath(options.workspaceRoot);
+  if (normalizedWorkspaceRoot && !isWithinPathBoundary(normalizedBase, normalizedWorkspaceRoot)) {
+    if (cache) {
+      cache.set(normalizedBase, undefined);
+    }
+    return undefined;
+  }
+
   let currentDir: string | undefined = normalizedBase;
   const visited = new Set<string>();
 
@@ -119,7 +131,7 @@ export async function findContextDirectoryForPath(
     if (parent === currentDir) {
       break;
     }
-    if (normalizedWorkspaceRoot && !parent.startsWith(normalizedWorkspaceRoot)) {
+    if (normalizedWorkspaceRoot && !isWithinPathBoundary(parent, normalizedWorkspaceRoot)) {
       break;
     }
     currentDir = parent;
