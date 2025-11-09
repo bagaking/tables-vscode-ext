@@ -37,15 +37,15 @@
     "prepublish:check": "pnpm run ci && pnpm run package:inspect",
     "package:vsix": "vsce package",
     "install:local": "sh -c 'code --install-extension \"$(ls -t *.vsix | head -n1)\"'",
-    "publish:marketplace": "vsce publish",
-    "publish:marketplace:patch": "npm version patch && vsce publish",
-    "publish:marketplace:minor": "npm version minor && vsce publish",
-    "publish:marketplace:major": "npm version major && vsce publish",
-    "publish:openvsx": "ovsx publish -p $OVSX_TOKEN",
-    "release:package": "npm run compile && npm run package:vsix",
-    "release:patch": "npm run compile && npm run publish:marketplace:patch",
-    "release:minor": "npm run compile && npm run publish:marketplace:minor",
-    "release:major": "npm run compile && npm run publish:marketplace:major"
+    "publish:marketplace": "pnpm run prepublish:check && vsce publish",
+    "publish:marketplace:patch": "pnpm run prepublish:check && npm version patch && vsce publish",
+    "publish:marketplace:minor": "pnpm run prepublish:check && npm version minor && vsce publish",
+    "publish:marketplace:major": "pnpm run prepublish:check && npm version major && vsce publish",
+    "publish:openvsx": "pnpm run prepublish:check && ovsx publish -p $OVSX_TOKEN",
+    "release:package": "pnpm run prepublish:check",
+    "release:patch": "pnpm run publish:marketplace:patch",
+    "release:minor": "pnpm run publish:marketplace:minor",
+    "release:major": "pnpm run publish:marketplace:major"
   },
   "contributes": {
     "commands": [

@@ -146,18 +146,18 @@ Keep `.vscodeignore` and `scripts/check-package-boundary.js` aligned when changi
 
 ## Release
 
-Use the full prepublish gate before publishing anywhere:
+Every publish and release script runs the full prepublish gate before it publishes or bumps a release version:
 
 ```bash
 pnpm run prepublish:check
 ```
 
-That command runs compile, tests, VSIX packaging, package listing, and the package boundary denylist check.
+That command runs compile, tests, VSIX packaging, package listing, and the package boundary denylist check. Run it directly when you want to inspect the gate without publishing.
 
 After the gate passes:
 
 - VS Code Marketplace: set `VSCE_PAT` or authenticate with `vsce`, then run `pnpm run publish:marketplace`.
-- Version bump publish: run `pnpm run publish:marketplace:patch`, `pnpm run publish:marketplace:minor`, or `pnpm run publish:marketplace:major`.
+- Version bump publish: run `pnpm run publish:marketplace:patch`, `pnpm run publish:marketplace:minor`, or `pnpm run publish:marketplace:major`; the gate runs before the version bump.
 - Open VSX: set `OVSX_TOKEN`, then run `pnpm run publish:openvsx`.
 
 Generated `.vsix` files are local release artifacts. Do not keep historical VSIX archives by nesting them into future extension packages; use GitHub Releases, Marketplace, or Open VSX version records instead.
