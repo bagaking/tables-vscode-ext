@@ -33,6 +33,8 @@
     "test": "mocha -r ts-node/register tests/**/*.test.ts",
     "ci": "pnpm run compile && pnpm test && pnpm run package:vsix",
     "vscode:prepublish": "npm run compile && node scripts/copy-vendor.js",
+    "package:inspect": "vsce ls",
+    "prepublish:check": "pnpm run ci && pnpm run package:inspect",
     "package:vsix": "vsce package",
     "install:local": "sh -c 'code --install-extension \"$(ls -t *.vsix | head -n1)\"'",
     "publish:marketplace": "vsce publish",

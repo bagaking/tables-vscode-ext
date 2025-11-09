@@ -1,10 +1,12 @@
 .git/**
+.gitignore
 .github/**
 .serena/**
 .vscode/**
 tests/**
 example/**
 src/**
+*.vsix
 **/*.map
 tsconfig.json
 pnpm-lock.yaml

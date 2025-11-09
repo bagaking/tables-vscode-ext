@@ -40,6 +40,8 @@ Modern CSV grid editor for VS Code, with first-class support for `@khgame/tables
 
 ## 安装与使用
 
+### 从源码安装
+
 1) 安装依赖并编译：
 
 ```bash
@@ -58,6 +60,14 @@ pnpm run ci
 ```
 
 该命令会编译 TypeScript、运行当前 Node 单元测试，并生成 `.vsix` 包，覆盖 CI 使用的最小发布置信度检查。
+
+发布或提交前建议再检查最终 VSIX 文件清单：
+
+```bash
+pnpm run package:inspect
+```
+
+`package:inspect` 会运行 VS Code extension prepublish 步骤，并列出将进入扩展包的文件。当前包应只包含运行时所需的 `dist/`、`media/`、`LICENSE`、`README.md`、`CHANGELOG.md` 和 `package.json` 等发布资产。
 
 ## 常见工作流
 
@@ -81,12 +91,16 @@ pnpm run ci
 
 ## 发行与打包
 
-- `pnpm run package:vsix` 使用锁文件内的本地 `vsce` 生成 `.vsix` 包；本仓库携带 `.vscodeignore` 避免将无关文件（如 `AGENTS.md`、测试、示例、源码）打入。
+- `pnpm run package:vsix` 使用锁文件内的本地 `vsce` 生成 `.vsix` 包。
+- `pnpm run prepublish:check` 会执行 CI 验证并打印 VSIX 文件清单，适合作为发布前最后一道本地检查。
+- 本仓库携带 `.vscodeignore`，避免将无关文件（如 `AGENTS.md`、测试、示例、源码、已有 `.vsix` 成品）打入新的 VSIX。
+- 根目录生成的 `.vsix` 是本地发布产物，默认受 `.gitignore` 与 `.vscodeignore` 保护；如需要保留历史成品，应通过 GitHub Release 或 Marketplace/OpenVSX 版本记录归档，而不是依赖扩展包嵌套扩展包。
 
 ### 脚本命令（本地/发布）
 
 - 本地打包：`npm run release:package`（等价：编译 + `vsce package`）
 - 本地安装：`npm run install:local`（自动安装最新生成的 `.vsix` 到当前 VS Code）
+- 发布前检查：`pnpm run prepublish:check`（编译、测试、打包并检查包内容）
 - 发布到 VS Code Marketplace（需提前设置 `VSCE_PAT` 或交互登录）：
   - `npm run publish:marketplace`（使用当前版本号）
   - `npm run publish:marketplace:patch|minor|major`（自动 bump 版本并发布）
