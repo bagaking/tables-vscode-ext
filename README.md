@@ -1,5 +1,9 @@
 # Tables CSV Editor
 
+![CI](https://github.com/bagaking/tables-vscode-ext/actions/workflows/ci.yml/badge.svg)
+
+Modern CSV grid editor for VS Code, with first-class support for `@khgame/tables` header rows, enum hints, raw CSV inspection, and GFM Markdown export.
+
 在 VS Code 中以现代表格体验编辑 CSV，针对 @khgame/tables 表头提供编辑辅助：自动识别 Mark 和 Desc 行与类型令牌、枚举下拉与标签化展示、连续主键、别名、枚举列固定等。
 
 ## 功能亮点
