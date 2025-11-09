@@ -3,8 +3,9 @@ const { spawnSync } = require('child_process');
 const packageFilePattern = new RegExp('^[A-Za-z0-9._/-]+$');
 const envFilePattern = new RegExp('^\\.env(?:\\.|$)');
 const sensitiveNamePattern = new RegExp('(?:token|secret|credential|credentials|passwd|password)', 'i');
+const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 
-const result = spawnSync('pnpm', ['exec', 'vsce', 'ls'], {
+const result = spawnSync(pnpmCommand, ['exec', 'vsce', 'ls'], {
   cwd: process.cwd(),
   encoding: 'utf8',
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -16,6 +17,11 @@ if (result.stdout) {
 
 if (result.stderr) {
   process.stderr.write(result.stderr);
+}
+
+if (result.error) {
+  console.error(`\nFailed to run ${pnpmCommand}: ${result.error.message}`);
+  console.error(result.error);
 }
 
 if (result.status !== 0) {
@@ -88,6 +94,9 @@ function isDeniedPackageFile(file) {
     [
       '.env',
       '.gitignore',
+      '.netrc',
+      '.npmrc',
+      '.pypirc',
       '.vscodeignore',
       'AGENTS.md',
       'pnpm-lock.yaml',
@@ -100,7 +109,16 @@ function isDeniedPackageFile(file) {
 
   return (
     basename.endsWith('.vsix') ||
+    basename.endsWith('.pem') ||
+    basename.endsWith('.key') ||
     basename.endsWith('.lock') ||
+    basename === '.netrc' ||
+    basename === '.npmrc' ||
+    basename === '.pypirc' ||
+    basename === 'id_dsa' ||
+    basename === 'id_ecdsa' ||
+    basename === 'id_ed25519' ||
+    basename === 'id_rsa' ||
     basename === 'package-lock.json' ||
     basename === 'yarn.lock' ||
     basename === 'npm-shrinkwrap.json' ||
