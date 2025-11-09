@@ -95,3 +95,7 @@ pnpm run ci
 ---
 
 欢迎提交 Issue/PR：补充更多 @khgame/tables 能力（模板/校验/导出等）或优化 Raw 视图（配色/开关/性能）。
+
+## License / 许可证
+
+This project is licensed under the [MIT License](LICENSE).
