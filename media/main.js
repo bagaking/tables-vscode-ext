@@ -1,20 +1,45 @@
 (function () {
   const vscode = acquireVsCodeApi();
   const gridElement = document.getElementById('grid');
-  const statusElement = document.getElementById('status');
+  const statusArea = document.getElementById('status-area');
+  const statusIndicatorEl = document.getElementById('status-indicator');
+  const statusTextEl = document.getElementById('status-text');
   const saveButton = document.getElementById('save');
   const rawToggleButton = document.getElementById('toggle-raw');
+  const exportMdButton = document.getElementById('export-md');
+  const runDiagButton = document.getElementById('run-diag');
   const rawViewElement = document.getElementById('raw-view');
   /** @type {HTMLDivElement | null} */
   let rawOverlayElement = null;
   /** @type {HTMLPreElement | null} */
   let rawOverlayPre = null;
   const editStatusElement = document.getElementById('edit-status');
+  const editIconElement = document.getElementById('edit-icon');
 
   const ROW_NUMBER_FIELD = '__rowNumber';
 
   const khModeSelect = document.getElementById('kh-mode-select');
   const khModeStatus = document.getElementById('kh-mode-status');
+  const khModeIndicator = document.getElementById('kh-mode-icon');
+
+  function svg(name) {
+    switch (name) {
+      case 'check':
+        return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 16.2l-3.5-3.5-1.4 1.4L9 19 20 8l-1.4-1.4z"/></svg>';
+      case 'dot':
+        return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="5"/></svg>';
+      case 'warn':
+        return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M1 21h22L12 2 1 21zm12-3h-2v2h2v-2zm0-8h-2v6h2V10z"/></svg>';
+      case 'error':
+        return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 5h2v6h-2V7zm0 8h2v2h-2v-2z"/></svg>';
+      case 'info':
+        return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm0-8h2V7h-2v2zm1-7C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/></svg>';
+      case 'spinner':
+        return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="spin"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 3a7 7 0 110 14 7 7 0 010-14z" opacity="0.25"/><path d="M12 2a10 10 0 00-10 10h3a7 7 0 017-7V2z"/></svg>';
+      default:
+        return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="5"/></svg>';
+    }
+  }
 
   /**
    * @typedef {{ active: boolean; override: 'auto' | 'on' | 'off'; detection: { hasMarkers: boolean; markRowIndex: number | null; tokenHits: string[]; confidence: number } }} KhTablesViewState
@@ -90,6 +115,41 @@
   const HEADER_WIDTH_BUFFER = 6;
   const RAW_VIEW_DEBOUNCE_MS = 250;
   const CONTEXT_MENU_ID = 'kh-context-menu';
+
+  // --- Diagnostics hooks ---
+  function postDiagnostics(scope, details) {
+    try {
+      vscode.postMessage({ type: 'diagnostics', scope, details });
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function snapshotDiagnostics() {
+    return {
+      readyState: document.readyState,
+      agGridOk: typeof window.agGrid !== 'undefined' && typeof window.agGrid.createGrid === 'function',
+      papaOk: typeof window.Papa !== 'undefined' && typeof window.Papa.parse === 'function',
+      gridElement: !!gridElement,
+      rawViewElement: !!rawViewElement,
+      khTablesState,
+      rawViewActive,
+      columnCount,
+      rowCount: Array.isArray(table) ? table.length : -1
+    };
+  }
+
+  window.addEventListener('error', (ev) => {
+    postDiagnostics('window.error', {
+      message: ev?.message,
+      filename: ev?.filename,
+      lineno: ev?.lineno,
+      colno: ev?.colno
+    });
+  });
+  window.addEventListener('unhandledrejection', (ev) => {
+    postDiagnostics('unhandledrejection', { reason: String(ev?.reason) });
+  });
 
   // --- Raw CSV overlay (colored separators) ---
   function ensureRawOverlay() {
@@ -276,9 +336,9 @@
       if (isNumberLiteral(dequoted)) {
         return `<span class=\"raw-token raw-cell-num\">${escapeHtmlLite(rawField)}</span>`;
       }
-      // non-numeric full-quoted: keep quotes, but still color number runs inside inner
+      // non-numeric full-quoted: wrap as string token, render inner with number runs
       const coloredInner = renderNumberRuns(inner);
-      return `\"${coloredInner}\"`;
+      return `<span class=\"raw-token raw-str\">\"${coloredInner}\"</span>`;
     };
 
     let i = 0;
@@ -850,9 +910,18 @@
           detail = detection.hasMarkers ? 'auto · markers detected' : 'auto';
           break;
       }
-      khModeStatus.textContent = `${modeText} (${detail})`;
+      const text = `${modeText} (${detail})`;
+      khModeStatus.textContent = text;
       khModeStatus.dataset.active = String(active);
-      khModeStatus.title = detection.tokenHits.length > 0 ? `Detected tokens: ${detection.tokenHits.join(', ')}` : '';
+      const tip = detection.tokenHits.length > 0 ? `Detected tokens: ${detection.tokenHits.join(', ')}` : '';
+      khModeStatus.title = tip;
+    }
+
+    if (khModeIndicator) {
+      khModeIndicator.dataset.tone = khTablesState.active ? 'active' : 'inactive';
+      const iconName = khTablesState.active ? 'check' : 'dot';
+      khModeIndicator.title = khModeStatus ? khModeStatus.title || '' : '';
+      khModeIndicator.innerHTML = svg(iconName);
     }
 
     if (khModeSelect) {
@@ -990,8 +1059,19 @@
       firstAction.focus({ preventScroll: true });
     }
 
-    const pointerHandler = (ev) => dismiss(ev);
-    const wheelHandler = (ev) => dismiss(ev);
+    const pointerHandler = (ev) => {
+      // Do not dismiss when interacting within the menu itself
+      if (menu.contains(ev.target)) {
+        return;
+      }
+      dismiss(ev);
+    };
+    const wheelHandler = (ev) => {
+      if (menu.contains(ev.target)) {
+        return;
+      }
+      dismiss(ev);
+    };
     const keyHandler = (ev) => dismiss(ev);
 
     window.addEventListener('pointerdown', pointerHandler, true);
@@ -1059,9 +1139,8 @@
       return;
     }
     const event = params.event;
-    if (event?.preventDefault) {
-      event.preventDefault();
-    }
+    if (event?.preventDefault) event.preventDefault();
+    if (event?.stopPropagation) event.stopPropagation();
     closeContextMenu();
 
     const column = params.column;
@@ -1081,9 +1160,8 @@
       return;
     }
     const event = params.event;
-    if (event?.preventDefault) {
-      event.preventDefault();
-    }
+    if (event?.preventDefault) event.preventDefault();
+    if (event?.stopPropagation) event.stopPropagation();
     closeContextMenu();
 
     const column = params.column;
@@ -1102,8 +1180,20 @@
   }
 
   function setStatus(message, tone) {
-    statusElement.textContent = message || '';
-    statusElement.dataset.tone = tone || 'info';
+    const t = tone || 'info';
+    if (statusIndicatorEl) {
+      statusIndicatorEl.dataset.tone = t;
+      statusIndicatorEl.title = message || '';
+      let icon = 'info';
+      if (t === 'error') icon = 'error';
+      else if (t === 'warn') icon = 'warn';
+      else if (t === 'success') icon = 'check';
+      statusIndicatorEl.innerHTML = svg(icon);
+      statusIndicatorEl.setAttribute('aria-label', message ? `${t}: ${message}` : t);
+    }
+    if (statusTextEl) {
+      statusTextEl.textContent = message || '';
+    }
   }
 
   function setEditStatus(state, label) {
@@ -1112,6 +1202,16 @@
     }
     editStatusElement.textContent = label;
     editStatusElement.dataset.state = state;
+    if (editIconElement) {
+      let tone = 'inactive';
+      let iconName = 'dot';
+      if (state === 'dirty') { tone = 'dirty'; iconName = 'dot'; }
+      else if (state === 'saving') { tone = 'saving'; iconName = 'spinner'; }
+      else if (state === 'saved') { tone = 'active'; iconName = 'check'; }
+      editIconElement.dataset.tone = tone;
+      editIconElement.title = label || '';
+      editIconElement.innerHTML = svg(iconName);
+    }
   }
 
   function updateRawViewText(csvText) {
@@ -1178,6 +1278,9 @@
       columnDefs: [],
       rowData: [],
       suppressFieldDotNotation: true,
+      suppressContextMenu: false,
+      enableRangeSelection: true, // allow selecting multiple cells/ranges
+      enableCellTextSelection: true, // allow selecting cell text for copy
       defaultColDef: {
         editable: true,
         resizable: true,
@@ -1187,7 +1290,8 @@
         wrapHeaderText: true,
         autoHeaderHeight: true
       },
-      rowSelection: 'single',
+      rowSelection: 'multiple',
+      rowMultiSelectWithClick: true,
       animateRows: true,
       onCellValueChanged: handleCellValueChanged,
       getRowClass: deriveRowClass,
@@ -1206,6 +1310,17 @@
     }
     window.addEventListener('resize', queueFitColumns, { passive: true });
     gridElement.addEventListener('scroll', closeContextMenu, { passive: true });
+    // prevent native contextmenu in grid area when table view is active
+    gridElement.addEventListener(
+      'contextmenu',
+      (ev) => {
+        if (!rawViewActive) {
+          // prevent native browser menu but allow event to reach AG Grid handlers
+          ev.preventDefault();
+        }
+      },
+      true
+    );
     queueFitColumns();
   }
 
@@ -1358,12 +1473,12 @@
 
     rowModels.forEach((row) => {
       if (row.__rowIndex === markRowIndex || row.__rowIndex === descriptionRowIndex) {
-        pinned.push({ ...row, __pinned: true, [ROW_NUMBER_FIELD]: '' });
+        pinned.push({ ...row, __pinned: true });
       }
     });
 
     if (pinned.length === 0 && rowModels.length > 0) {
-      pinned.push({ ...rowModels[0], __pinned: true, [ROW_NUMBER_FIELD]: '' });
+      pinned.push({ ...rowModels[0], __pinned: true });
     }
 
     return pinned.map((row) => ({ ...row, __rowIndex: row.__rowIndex ?? -1 }));
@@ -1579,11 +1694,28 @@
         minWidth: 24,
         maxWidth: 40,
         valueGetter: (params) => {
+          const api = params?.api || gridOptions.api || gridApi;
           const node = params?.node;
-          if (!node || node.rowPinned) {
+          if (!node) {
             return '';
           }
-          return (node.rowIndex ?? 0) + 1;
+          const pinnedCount = typeof api?.getPinnedTopRowCount === 'function' ? api.getPinnedTopRowCount() : 0;
+          if (node.rowPinned) {
+            // Determine index among pinned top rows
+            if (typeof node.rowIndex === 'number') {
+              return (node.rowIndex ?? 0) + 1;
+            }
+            if (typeof api?.getPinnedTopRow === 'function') {
+              for (let i = 0; i < pinnedCount; i += 1) {
+                const r = api.getPinnedTopRow(i);
+                if (r && r.data === node.data) {
+                  return i + 1;
+                }
+              }
+            }
+            return 1;
+          }
+          return pinnedCount + (node.rowIndex ?? 0) + 1;
         },
         cellClass: 'kh-row-number-cell',
         headerClass: 'kh-row-number-header'
@@ -1864,8 +1996,14 @@
     }, RAW_VIEW_DEBOUNCE_MS);
   }
 
-  function updateFromText(csvText) {
+  function updateFromText(csvText, dirty) {
     if (csvText === lastCsvText) {
+      // Still update edit status if host is informing a dirty state change
+      if (dirty === true) {
+        setEditStatus('dirty', 'Unsaved changes');
+      } else if (dirty === false) {
+        setEditStatus('saved', 'Saved');
+      }
       return;
     }
 
@@ -1875,7 +2013,11 @@
     parseCsv(csvText);
     rebuildGrid();
     updateRawViewText(csvText);
-    setEditStatus('saved', 'Saved');
+    if (dirty === true) {
+      setEditStatus('dirty', 'Unsaved changes');
+    } else if (dirty === false) {
+      setEditStatus('saved', 'Saved');
+    }
   }
 
   function detectLineEnding(text) {
@@ -2036,8 +2178,11 @@
       case 'init':
       case 'externalUpdate':
         applyEnumContextPayload(message.context);
-        updateFromText(message.text || '');
+        updateFromText(message.text || '', Boolean(message.dirty));
         applyKhTablesState(message.khTables);
+        break;
+      case 'diagnosticsRequest':
+        postDiagnostics('snapshot', snapshotDiagnostics());
         break;
       case 'khTablesState':
         applyEnumContextPayload(message.context);
@@ -2054,6 +2199,19 @@
 
   if (rawToggleButton) {
     rawToggleButton.addEventListener('click', toggleRawView);
+  }
+
+  if (exportMdButton) {
+    exportMdButton.addEventListener('click', () => {
+      vscode.postMessage({ type: 'exportMarkdown' });
+    });
+  }
+
+  if (runDiagButton) {
+    runDiagButton.addEventListener('click', () => {
+      postDiagnostics('manual', snapshotDiagnostics());
+      setStatus('Diagnostics posted to Extension Host log', 'info');
+    });
   }
 
   if (rawViewElement) {

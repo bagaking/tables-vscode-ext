@@ -17,6 +17,9 @@
     - 单元格中出现的数字片段按整数/浮点区分着色
   - 仍基于 `Papa.parse` 保持原始换行风格与末尾换行
 
+- 一键导出（GFM）
+  - 通过命令 `Export CSV as GFM Markdown` 将当前 CSV 转为 GitHub Flavored Markdown 表格并保存；自动转义 `|`、保留多行为 `<br/>`
+
 - 原生 @khgame/tables 支持（0 配置）
   - 自动检测 Mark Row（前 16 行采样，命中 `@/$ghost/$strict/enum<...>/map/pair/...` 等令牌且置信度阈值达标）
   - 列类型判定与配色：`@/alias/enum/tid/struct/comment/default`
@@ -48,6 +51,7 @@ npm run compile
 
 - 在表格视图编辑 → 顶部点击 Save 保存到文件。
 - 切换到 Raw 文本视图核对分隔与数值格式（分隔符/数字已高亮）。
+- 需要文档/README：打开命令面板 `Export CSV as GFM Markdown` 一键输出 Markdown 表格。
 - 针对 @khgame/tables 的表：
   - 自动识别 Mark/Desc；类型列着色与强调；枚举列可下拉选择并以标签展示；连续主键/别名/枚举列固定。
 

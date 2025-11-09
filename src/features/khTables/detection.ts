@@ -1,4 +1,58 @@
-import { parse } from 'papaparse';
+/**
+ * Lightweight CSV preview parser for extension host (avoid depending on papaparse at runtime).
+ * Supports commas, CR/LF, quotes with "" escaping; returns up to maxRows rows.
+ */
+function parsePreview(csvText: string, maxRows: number): string[][] {
+  if (typeof csvText !== 'string' || csvText.length === 0) {
+    return [[]];
+  }
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+  for (let i = 0; i < csvText.length; i += 1) {
+    const ch = csvText[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < csvText.length && csvText[i + 1] === '"') {
+          field += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += ch;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = true;
+      continue;
+    }
+    if (ch === ',') {
+      row.push(field);
+      field = '';
+      continue;
+    }
+    if (ch === '\r') {
+      continue;
+    }
+    if (ch === '\n') {
+      row.push(field);
+      rows.push(row);
+      if (rows.length >= maxRows) {
+        return rows;
+      }
+      row = [];
+      field = '';
+      continue;
+    }
+    field += ch;
+  }
+  row.push(field);
+  rows.push(row);
+  return rows.slice(0, maxRows);
+}
 
 export interface KhTablesDetection {
   readonly hasMarkers: boolean;
@@ -69,21 +123,13 @@ export function detectKhTablesMarkers(csvText: string, maxRows = 16): KhTablesDe
     return { hasMarkers: false, confidence: 0, tokenHits: [] };
   }
 
-  const preview = parse<string[]>(csvText, {
-    dynamicTyping: false,
-    skipEmptyLines: false,
-    preview: maxRows
-  });
-
-  if (!Array.isArray(preview.data)) {
-    return { hasMarkers: false, confidence: 0, tokenHits: [] };
-  }
+  const previewData = parsePreview(csvText, maxRows);
 
   let bestConfidence = 0;
   let bestHits: string[] = [];
   let bestRowIndex: number | undefined;
 
-  preview.data.forEach((row, index) => {
+  previewData.forEach((row, index) => {
     if (!Array.isArray(row)) {
       return;
     }

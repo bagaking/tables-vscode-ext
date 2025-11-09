@@ -9,14 +9,50 @@ body {
   height: 100vh;
 }
 
+/* Visually hidden but accessible */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
 .status-bar {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   padding: 0.45rem 0.75rem;
-  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  /* Glassy gradient container similar to the demo */
+  background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 88%, transparent) 0%,
+      color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 60%, transparent) 100%
+    );
   border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
   font-size: 0.85rem;
+  z-index: 5;
+  border-radius: 12px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid color-mix(in srgb, var(--vscode-panel-border, rgba(128, 128, 128, 0.25)) 85%, transparent);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+.status-bar.top {
+  position: sticky;
+  top: 0;
+  margin: 6px 6px 0 6px;
+}
+
+.status-bar.bottom {
+  position: static; /* stickiness not necessary; layout holds it at bottom */
+  margin: 0 6px 6px 6px;
 }
 
 .status-group {
@@ -79,14 +115,46 @@ body {
 }
 
 .status-bar button {
-  border: none;
-  border-radius: 4px;
-  padding: 0.3rem 0.75rem;
+  position: relative;
+  border: 1px solid color-mix(in srgb, var(--vscode-dropdown-border, rgba(128, 128, 128, 0.35)) 70%, transparent);
+  border-radius: 10px;
+  padding: 0.35rem 0.8rem;
   font-size: 0.8rem;
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
+  background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 90%, transparent) 0%,
+      color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 70%, transparent) 100%
+    );
+  color: var(--vscode-foreground);
   cursor: pointer;
-  transition: background 0.12s ease-out;
+  transition: border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  overflow: visible;
+}
+
+/* Per-button glow background using a CSS variable */
+.status-bar .actions button::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 14px;
+  background: var(--glow-grad, radial-gradient(circle at 50% 50%, transparent 0%, transparent 100%));
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.35s ease, transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.status-bar .actions button:hover::before,
+.status-bar .actions button:focus-visible::before,
+.status-bar #toggle-raw[aria-pressed='true']::before {
+  opacity: 1;
+  transform: scale(1.05);
+}
+
+.status-bar .actions button:hover {
+  transform: translateY(-1px);
+  border-color: var(--vscode-focusBorder, #007acc);
 }
 
 .status-bar button:hover {
@@ -99,7 +167,11 @@ body {
 }
 
 #toggle-raw[aria-pressed='true'] {
-  background: var(--vscode-button-hoverBackground, #0e639c);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--vscode-button-background) 75%, transparent),
+    color-mix(in srgb, var(--vscode-button-hoverBackground, #0e639c) 55%, transparent)
+  );
 }
 
 .status-spacer {
@@ -113,6 +185,20 @@ body {
   margin-left: auto;
 }
 
+/* Button-specific glow palettes (roughly matches the demo’s colorways) */
+#toggle-raw {
+  --glow-grad: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.18) 0%, rgba(37, 99, 235, 0.10) 50%, rgba(29, 78, 216, 0) 80%);
+}
+#export-md {
+  --glow-grad: radial-gradient(circle at 50% 50%, rgba(249, 115, 22, 0.18) 0%, rgba(234, 88, 12, 0.10) 50%, rgba(194, 65, 12, 0) 80%);
+}
+#run-diag {
+  --glow-grad: radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.18) 0%, rgba(124, 58, 237, 0.10) 50%, rgba(109, 40, 217, 0) 80%);
+}
+#save {
+  --glow-grad: radial-gradient(circle at 50% 50%, rgba(34, 197, 94, 0.18) 0%, rgba(22, 163, 74, 0.10) 50%, rgba(21, 128, 61, 0) 80%);
+}
+
 #status[data-tone="error"] {
   color: var(--vscode-errorForeground, #f48771);
 }
@@ -120,6 +206,37 @@ body {
 #status[data-tone="warn"] {
   color: var(--vscode-editorWarning-foreground, #cca700);
 }
+
+/* Status indicator (icon with tooltip) */
+#status-area { display: inline-flex; align-items: center; gap: 6px; }
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
+  background: transparent;
+  color: var(--vscode-foreground);
+  cursor: default;
+  padding: 0;
+}
+.status-indicator svg { width: 14px; height: 14px; display: block; }
+.status-indicator[data-tone="info"] { color: var(--vscode-descriptionForeground, rgba(255,255,255,0.7)); }
+.status-indicator[data-tone="warn"] { color: var(--vscode-editorWarning-foreground, #cca700); }
+.status-indicator[data-tone="error"] { color: var(--vscode-errorForeground, #f48771); }
+.status-indicator[data-tone="success"] { color: var(--vscode-charts-green, #3ba55d); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 1.1s linear infinite; transform-origin: 50% 50%; }
+
+/* Small leading icons in bottom groups */
+.status-icon { width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; }
+.status-icon svg { width: 14px; height: 14px; display: block; }
+.status-icon[data-tone="active"] { color: var(--vscode-charts-green, #3ba55d); }
+.status-icon[data-tone="inactive"] { color: var(--vscode-descriptionForeground, rgba(255,255,255,0.6)); }
+.status-icon[data-tone="dirty"] { color: var(--vscode-editorWarning-foreground, #cca700); }
+.status-icon[data-tone="saving"] { color: var(--vscode-charts-blue, #4fc3f7); }
 
 #view-container {
   flex: 1 1 auto;
@@ -266,11 +383,11 @@ body {
   --ag-borders: rgba(0, 0, 0, 0.1);
   --ag-selected-row-background-color: color-mix(in srgb, var(--vscode-editor-selectionBackground, #f5f5f5) 70%, #ffffff 30%);
   --ag-font-family: var(--vscode-font-family, system-ui, sans-serif);
-  --ag-font-size: 12px;
+  --ag-font-size: 11px;
   --ag-header-column-resize-handle-color: var(--vscode-focusBorder, #007acc);
-  --ag-grid-size: 2px;
-  --ag-row-height: 22px;
-  --ag-header-height: 26px;
+  --ag-grid-size: 1px;
+  --ag-row-height: 20px;
+  --ag-header-height: 22px;
   --ag-cell-horizontal-padding: 0px;
 }
 
@@ -281,7 +398,7 @@ body {
 
 .ag-theme-quartz .ag-header-cell,
 .ag-theme-quartz .ag-header-group-cell {
-  padding: 0 4px;
+  padding: 0 2px;
 }
 
 .ag-theme-quartz .ag-header-cell-label {
@@ -499,10 +616,10 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 0 6px;
-  min-height: 18px;
+  padding: 0 4px;
+  min-height: 16px;
   background: #e0f2ff;
-  border-radius: 10px;
+  border-radius: 8px;
   color: #0b4870;
   font-weight: 600;
   letter-spacing: 0.01em;

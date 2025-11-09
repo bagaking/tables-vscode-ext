@@ -4,6 +4,14 @@
   "description": "View and edit CSV files with a modern data grid inside VS Code.",
   "version": "0.0.1",
   "publisher": "bagaking",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bagaking/tables-vscode-ext.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bagaking/tables-vscode-ext/issues"
+  },
+  "homepage": "https://github.com/bagaking/tables-vscode-ext#readme",
   "engines": {
     "vscode": "^1.84.0"
   },
@@ -12,14 +20,17 @@
   ],
   "activationEvents": [
     "onCustomEditor:tables.csvEditor",
-    "onCommand:tablesCsvEditor.openFile"
+    "onCommand:tablesCsvEditor.openFile",
+    "onCommand:tablesCsvEditor.exportMarkdown",
+    "onCommand:tablesCsvEditor.runDiagnostics",
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "mocha -r ts-node/register tests/**/*.test.ts",
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run compile && node scripts/copy-vendor.js",
     "package:vsix": "npx vsce package",
     "install:local": "sh -c 'code --install-extension \"$(ls -t *.vsix | head -n1)\"'",
     "publish:marketplace": "npx vsce publish",
@@ -38,8 +49,35 @@
         "command": "tablesCsvEditor.openFile",
         "category": "Tables",
         "title": "Open CSV in Tables Editor"
+      },
+      {
+        "command": "tablesCsvEditor.exportMarkdown",
+        "category": "Tables",
+        "title": "Export CSV as GFM Markdown"
+      },
+      {
+        "command": "tablesCsvEditor.runDiagnostics",
+        "category": "Tables",
+        "title": "Run Diagnostics (Tables CSV Editor)"
       }
     ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "tablesCsvEditor.exportMarkdown",
+          "when": "resourceExtname == .csv",
+          "group": "navigation@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "tablesCsvEditor.exportMarkdown"
+        },
+        {
+          "command": "tablesCsvEditor.runDiagnostics"
+        }
+      ]
+    },
     "customEditors": [
       {
         "viewType": "tables.csvEditor",
@@ -70,5 +108,6 @@
     "@khgame/tables": "0.2.8",
     "ag-grid-community": "^32.2.1",
     "papaparse": "^5.4.1"
-  }
+  },
+  "license": "MIT"
 }
