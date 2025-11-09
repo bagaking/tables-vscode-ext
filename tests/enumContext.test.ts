@@ -220,4 +220,12 @@ describe('khTables detection utilities', () => {
     expect(detection.confidence).to.equal(0);
     expect(detection.tokenHits).to.deep.equal([]);
   });
+
+  it('treats any unclosed quoted field in the preview as malformed CSV', () => {
+    const detection = detectKhTablesMarkers('@,string,int\nid,name,level\n1,"unterminated');
+
+    expect(detection.hasMarkers).to.equal(false);
+    expect(detection.confidence).to.equal(0);
+    expect(detection.tokenHits).to.deep.equal([]);
+  });
 });
