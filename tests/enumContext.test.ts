@@ -206,7 +206,7 @@ describe('enumContext utilities', () => {
 
       expect(await loadContextFromDirectory(configsDir)).to.deep.equal({
         enums: {
-          Rarity: { RARE: 2 },
+          Rarity: { COMMON: 1, RARE: 2 },
           WeaponFlag: { ENERGY: 'energy' }
         },
         meta: { exports: { enum: ['enums'] } }

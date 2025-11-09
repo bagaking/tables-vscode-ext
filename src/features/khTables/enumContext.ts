@@ -174,7 +174,7 @@ export async function loadContextFromDirectory(
     const parsed = JSON.parse(content) as unknown;
 
     if (context[blobName] && isRecord(context[blobName]) && isRecord(parsed)) {
-      context[blobName] = { ...context[blobName], ...parsed };
+      context[blobName] = mergeContextRecords(context[blobName], parsed);
       continue;
     }
 
@@ -323,6 +323,22 @@ function compareContextFileNames(a: string, b: string): number {
   const rank = (fileName: string) => (BASE_CONTEXT_FILENAME_PATTERN.test(fileName) ? 0 : 1);
   const rankDelta = rank(a) - rank(b);
   return rankDelta === 0 ? a.localeCompare(b) : rankDelta;
+}
+
+function mergeContextRecords(
+  base: Record<string, unknown>,
+  overlay: Record<string, unknown>
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(overlay)) {
+    const existing = merged[key];
+    if (isRecord(existing) && isRecord(value)) {
+      merged[key] = mergeContextRecords(existing, value);
+      continue;
+    }
+    merged[key] = value;
+  }
+  return merged;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
