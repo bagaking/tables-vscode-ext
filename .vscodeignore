@@ -9,5 +9,5 @@ src/**
 tsconfig.json
 pnpm-lock.yaml
 AGENTS.md
-requiresments.md
+requirements.md
 scripts/**
