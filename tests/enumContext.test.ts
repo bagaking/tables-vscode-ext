@@ -11,6 +11,7 @@ import {
   loadContextFromDirectory,
   type FileSystemHost
 } from '../src/features/khTables/enumContext';
+import { detectKhTablesMarkers } from '../src/features/khTables/detection';
 
 describe('enumContext utilities', () => {
   describe('convertContextToEnumPayload', () => {
@@ -200,5 +201,23 @@ describe('enumContext utilities', () => {
         meta: { exports: { enum: ['enums'] } }
       });
     });
+  });
+});
+
+describe('khTables detection utilities', () => {
+  it('detects well-formed marker rows', () => {
+    const detection = detectKhTablesMarkers('@,string,int\nid,name,level');
+
+    expect(detection.hasMarkers).to.equal(true);
+    expect(detection.markRowIndex).to.equal(0);
+    expect(detection.tokenHits).to.include('@');
+  });
+
+  it('does not detect markers inside unclosed quoted fields', () => {
+    const detection = detectKhTablesMarkers('"@|string|int\nid,name,level');
+
+    expect(detection.hasMarkers).to.equal(false);
+    expect(detection.confidence).to.equal(0);
+    expect(detection.tokenHits).to.deep.equal([]);
   });
 });

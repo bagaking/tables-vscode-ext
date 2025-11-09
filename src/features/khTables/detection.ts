@@ -2,9 +2,14 @@
  * Lightweight CSV preview parser for extension host (avoid depending on papaparse at runtime).
  * Supports commas, CR/LF, quotes with "" escaping; returns up to maxRows rows.
  */
-function parsePreview(csvText: string, maxRows: number): string[][] {
+interface PreviewParseResult {
+  readonly rows: string[][];
+  readonly hasUnclosedQuotes: boolean;
+}
+
+function parsePreview(csvText: string, maxRows: number): PreviewParseResult {
   if (typeof csvText !== 'string' || csvText.length === 0) {
-    return [[]];
+    return { rows: [[]], hasUnclosedQuotes: false };
   }
   const rows: string[][] = [];
   let row: string[] = [];
@@ -41,7 +46,7 @@ function parsePreview(csvText: string, maxRows: number): string[][] {
       row.push(field);
       rows.push(row);
       if (rows.length >= maxRows) {
-        return rows;
+        return { rows, hasUnclosedQuotes: inQuotes };
       }
       row = [];
       field = '';
@@ -51,7 +56,7 @@ function parsePreview(csvText: string, maxRows: number): string[][] {
   }
   row.push(field);
   rows.push(row);
-  return rows.slice(0, maxRows);
+  return { rows: rows.slice(0, maxRows), hasUnclosedQuotes: inQuotes };
 }
 
 export interface KhTablesDetection {
@@ -124,12 +129,15 @@ export function detectKhTablesMarkers(csvText: string, maxRows = 16): KhTablesDe
   }
 
   const previewData = parsePreview(csvText, maxRows);
+  if (previewData.hasUnclosedQuotes) {
+    return { hasMarkers: false, confidence: 0, tokenHits: [] };
+  }
 
   let bestConfidence = 0;
   let bestHits: string[] = [];
   let bestRowIndex: number | undefined;
 
-  previewData.forEach((row, index) => {
+  previewData.rows.forEach((row, index) => {
     if (!Array.isArray(row)) {
       return;
     }
