@@ -2,114 +2,173 @@
 
 ![CI](https://github.com/bagaking/tables-vscode-ext/actions/workflows/ci.yml/badge.svg)
 
-Modern CSV grid editor for VS Code, with first-class support for `@khgame/tables` header rows, enum hints, raw CSV inspection, and GFM Markdown export.
+Tables CSV Editor is a VS Code custom editor for working with CSV files as a grid while keeping the source CSV as the file of record. It is built for ordinary CSV editing and for `@khgame/tables` sheets that use Mark / Desc header rows, type tokens, enum columns, aliases, and `tid` identifiers.
 
-在 VS Code 中以现代表格体验编辑 CSV，针对 @khgame/tables 表头提供编辑辅助：自动识别 Mark 和 Desc 行与类型令牌、枚举下拉与标签化展示、连续主键、别名、枚举列固定等。
+The extension contributes a `*.csv` custom editor, a raw CSV inspection view, and a command for exporting the active CSV file as a GitHub Flavored Markdown table.
 
-## 功能亮点
+## Install
 
-- 表格编辑（AG Grid）
-  - 单元格实时编辑，文本与表格双向同步；行/列右键菜单：Add/Remove Row、Add/Remove Column
-  - 自动列宽（测量 Header/内容、最小 12px）；行号列固定在左侧
-  - 置顶显示 Mark 与 Desc 行；连续 `@/alias/enum` 数据列自动固定在左侧
-  - 结构化括号 `()[]{}` 彩虹深度着色；可选/必选标记、注释列斜体、类型列加粗
+### From a packaged VSIX
 
-- Raw 文本视图（增强）
-  - 分隔符彩虹着色（逗号/分号/Tab，按列序循环），辅助对齐阅读
-  - 数值高亮：
-    - 整个单元格都是数字时整格高亮（含引号包裹的数值）
-    - 单元格中出现的数字片段按整数/浮点区分着色
-  - 仍基于 `Papa.parse` 保持原始换行风格与末尾换行
+Until a registry release is available, install a locally built VSIX:
 
-- 一键导出（GFM）
-  - 通过命令 `Export CSV as GFM Markdown` 将当前 CSV 转为 GitHub Flavored Markdown 表格并保存；自动转义 `|`、保留多行为 `<br/>`
+```bash
+pnpm install --frozen-lockfile
+pnpm run package:vsix
+code --install-extension "$(ls -t *.vsix | head -n1)"
+```
 
-- @khgame/tables 表头辅助（0 配置）
-  - 自动检测 Mark Row（前 16 行采样，命中 `@/$ghost/$strict/enum<...>/map/pair/...` 等令牌且置信度阈值达标）
-  - 列类型判定与配色：`@/alias/enum/tid/struct/comment/default`
-  - 枚举编辑与展示：
-    - 读取工作区或上级目录中的 `context.*.json`（含 `context/`、`contexts/`、`.context/` 子目录）并合并常见 `context.enums` 对象和数组定义为枚举候选；表引用型 `ref` 枚举仍需由 @khgame/tables 工具链生成
-    - 数据行以标签样式展示，支持 `enum<Name|Fallback1|...>` 的回退项（标记 `fallback`）
-    - 单元格编辑为下拉选择（保留当前非候选值为 raw value）
-  - 便利操作：行号右键可复制首个 `tid` 列；Mark/Desc 行固定置顶；连续主键/别名/枚举列固定在左侧
+You can also run the repository helper after packaging:
 
-- 体验与可访问性
-  - 顶部状态栏：Mode（Auto/On/Off）、编辑状态（Saved/Unsaved/Saving…）、Raw/Table 切换、Save
-  - 自动响应外部变更（例如 Git 切换分支）；ARIA 属性与键盘可用性
-  - 遵循 VS Code 主题变量与严格的 Webview CSP
+```bash
+pnpm run install:local
+```
 
-## 安装与使用
+### From Marketplace or Open VSX
 
-### 从源码安装
+The repository includes publish scripts for the VS Code Marketplace and Open VSX, but publishing is gated by the release checks in [Release](#release). Do not assume a registry package exists unless the project has cut one there.
 
-1) 安装依赖并编译：
+## Use
+
+- Open a `*.csv` file. VS Code loads it with the `Tables CSV Editor` custom editor by default.
+- Use the command palette command `Tables: Open CSV in Tables Editor` when you need to reopen a CSV in the grid editor.
+- Edit cells in the table view, then use the webview `Save` action to write changes back to the CSV file.
+- Switch to the raw view to inspect delimiters, quoted values, numeric fragments, and line endings without leaving the editor.
+- Run `Tables: Export CSV as GFM Markdown` to write the current CSV as a GitHub Flavored Markdown table.
+- Run `Tables: Run Diagnostics (Tables CSV Editor)` when debugging the active webview state.
+
+## Features
+
+### Grid editing
+
+- AG Grid table editing for CSV rows and columns.
+- Row and column context menu actions for adding and removing rows or columns.
+- Header and content based auto-width calculation with a fixed row-number column.
+- Mark and Desc rows pinned at the top when detected.
+- Consecutive `@`, `alias`, and `enum` data columns pinned on the left.
+- Bracket-depth coloring for `()[]{}` content.
+- Visual treatment for optional / required markers, comment columns, and type columns.
+
+### Raw CSV inspection
+
+- Raw text mode for checking the underlying CSV directly.
+- Delimiter coloring for comma, semicolon, and tab-separated content.
+- Numeric highlighting for whole-cell numbers and numeric fragments.
+- Parsing through `Papa.parse`, preserving the original newline style and final newline behavior.
+
+### Markdown export
+
+- `Tables: Export CSV as GFM Markdown` writes a GitHub Flavored Markdown table.
+- The export escapes `|` characters and preserves multiline cell content as `<br/>`.
+
+### `@khgame/tables` assistance
+
+- Detects Mark rows by sampling the first 16 rows for tokens such as `@`, `$ghost`, `$strict`, `enum<...>`, `map`, and `pair`.
+- Classifies column types such as `@`, `alias`, `enum`, `tid`, `struct`, `comment`, and `default`.
+- Reads enum candidates from `context.*.json` files in the workspace or parent directories, including `context/`, `contexts/`, and `.context/` directories.
+- Supports enum fallback values declared in `enum<Name|Fallback1|...>`.
+- Shows enum values as labels and edits enum cells with a dropdown while preserving raw values that are not in the candidate set.
+- Lets the row-number context menu copy the first detected `tid` column value.
+
+### VS Code integration
+
+- Uses VS Code theme variables inside the webview.
+- Runs under a strict webview Content Security Policy with nonce-based scripts.
+- Reacts to external file changes, including branch switches.
+- Keeps the webview resource surface local to packaged extension assets.
+
+## Known Constraints
+
+- The extension is scoped to CSV files matched by the contributed `*.csv` custom editor.
+- Registry availability depends on an explicit Marketplace or Open VSX release; local VSIX installation is the reliable install path before that.
+- Enum discovery only covers local `context.*.json` files and common context directories. Reference-style enum data still needs to come from the `@khgame/tables` toolchain.
+- The package inspection gate checks publish boundaries, not every runtime behavior of the editor.
+- Automated tests cover current parser and utility behavior. UI interaction changes still need manual smoke testing in the Extension Development Host.
+
+## Develop
 
 ```bash
 pnpm install --frozen-lockfile
 pnpm run compile
+pnpm test
 ```
 
-2) 开发调试：在 VS Code 中按 `F5` 启动 Extension Development Host。
+For an interactive development loop:
 
-3) 打开任意 `*.csv` 文件即进入编辑器；或在命令面板执行 `Open CSV in Tables Editor`。
+1. Run `pnpm run watch`.
+2. Open this repository in VS Code.
+3. Press `F5` to launch the Extension Development Host.
+4. Open files from `example/` or another `*.csv` file.
+5. Smoke test load, edit, add / remove row, add / remove column, raw view, export, and save round-trip behavior.
 
-## 本地验证
+Project layout:
+
+- `src/extension.ts` registers the extension commands, custom editor, and webview messaging.
+- `src/features/khTables/` contains `@khgame/tables` detection, state, and enum context parsing.
+- `media/` contains the webview runtime assets served into VS Code.
+- `dist/` is TypeScript compiler output and is packaged with the extension.
+- `example/` contains CSV files for manual smoke tests.
+- `tests/` contains Node-based parser and utility tests.
+
+## Validate
+
+Run the same core checks used for local release confidence:
 
 ```bash
+pnpm install --frozen-lockfile
 pnpm run ci
+pnpm run package:inspect
+git diff --check
+git diff --cached --check
 ```
 
-该命令会编译 TypeScript、运行当前 Node 单元测试，并生成 `.vsix` 包，覆盖 CI 使用的最小发布置信度检查。
+`pnpm run ci` compiles TypeScript, runs the Node test suite, and builds a VSIX package. `pnpm run package:inspect` runs `scripts/check-package-boundary.js`, which executes `vsce ls` and fails if denied files would enter the extension package.
 
-发布或提交前建议再检查最终 VSIX 文件清单：
+## VSIX Package Boundary
+
+The extension package should contain runtime-ready assets only. The expected package surface is limited to files such as:
+
+- `dist/`
+- `media/`
+- `LICENSE`
+- `README.md`
+- `CHANGELOG.md`
+- `package.json`
+
+The package boundary check denies maintainer, source, test, local artifact, lockfile, and secret-shaped paths, including:
+
+- `.github/`, `.vscode/`, `example/`, `scripts/`, `src/`, and `tests/`
+- existing `.vsix` archives
+- `.env`, `.npmrc`, `.netrc`, key files, token / secret / credential-shaped names
+- `AGENTS.md`, `requirements.md`, `tsconfig.json`, and lockfiles
+
+Keep `.vscodeignore` and `scripts/check-package-boundary.js` aligned when changing the package surface.
+
+## Release
+
+Use the full prepublish gate before publishing anywhere:
 
 ```bash
-pnpm run package:inspect
+pnpm run prepublish:check
 ```
 
-`package:inspect` 会运行 VS Code extension prepublish 步骤，列出将进入扩展包的文件，并对发布边界做机器可判定的 denylist 检查；如果 `src/`、`tests/`、`example/`、`.github/`、`.vscode/`、已有 `.vsix`、锁文件、`AGENTS.md`、`requirements.md`、`.env` 或 token/secret 类文件进入包内，命令会以非 0 退出。当前包应只包含运行时所需的 `dist/`、`media/`、`LICENSE`、`README.md`、`CHANGELOG.md` 和 `package.json` 等发布资产。
+That command runs compile, tests, VSIX packaging, package listing, and the package boundary denylist check.
 
-## 常见工作流
+After the gate passes:
 
-- 在表格视图编辑 → 顶部点击 Save 保存到文件。
-- 切换到 Raw 文本视图核对分隔与数值格式（分隔符/数字已高亮）。
-- 需要文档/README：打开命令面板 `Export CSV as GFM Markdown` 一键输出 Markdown 表格。
-- 针对 @khgame/tables 的表：
-  - 自动识别 Mark/Desc；类型列着色与强调；枚举列可下拉选择并以标签展示；连续主键/别名/枚举列固定。
+- VS Code Marketplace: set `VSCE_PAT` or authenticate with `vsce`, then run `pnpm run publish:marketplace`.
+- Version bump publish: run `pnpm run publish:marketplace:patch`, `pnpm run publish:marketplace:minor`, or `pnpm run publish:marketplace:major`.
+- Open VSX: set `OVSX_TOKEN`, then run `pnpm run publish:openvsx`.
 
-## 项目结构
+Generated `.vsix` files are local release artifacts. Do not keep historical VSIX archives by nesting them into future extension packages; use GitHub Releases, Marketplace, or Open VSX version records instead.
 
-- `src/extension.ts` 扩展入口，注册自定义编辑器与 Webview
-- `media/` Webview 前端（`main.js`/`main.css`）
-- `src/features/khTables/*` KH Tables 检测、状态与枚举上下文解析
-- `dist/` TypeScript 编译输出
-- `example/` 示例 CSV（可用于手动冒烟）
+## Security
 
-## 安全与内容安全策略（CSP）
+- The webview uses `default-src 'none'` and nonce-based scripts.
+- Runtime webview resources should be bundled locally under `media/`.
+- Do not fetch arbitrary scripts at runtime from the webview.
+- Review the CSP in `src/extension.ts` whenever adding new webview assets.
 
-- Webview 仅开放 `media/` 与内置依赖资源；`default-src 'none'`，脚本使用 `nonce`，不从网络拉取动态脚本。
-
-## 发行与打包
-
-- `pnpm run package:vsix` 使用锁文件内的本地 `vsce` 生成 `.vsix` 包。
-- `pnpm run prepublish:check` 会执行 CI 验证、打印 VSIX 文件清单，并在发布边界 denylist 命中时失败，适合作为发布前最后一道本地检查。
-- 本仓库携带 `.vscodeignore`，避免将无关文件（如 `AGENTS.md`、测试、示例、源码、已有 `.vsix` 成品）打入新的 VSIX。
-- 根目录生成的 `.vsix` 是本地发布产物，默认受 `.gitignore` 与 `.vscodeignore` 保护；如需要保留历史成品，应通过 GitHub Release 或 Marketplace/OpenVSX 版本记录归档，而不是依赖扩展包嵌套扩展包。
-
-### 脚本命令（本地/发布）
-
-- 本地打包：`npm run release:package`（等价：编译 + `vsce package`）
-- 本地安装：`npm run install:local`（自动安装最新生成的 `.vsix` 到当前 VS Code）
-- 发布前检查：`pnpm run prepublish:check`（编译、测试、打包并检查包内容）
-- 发布到 VS Code Marketplace（需提前设置 `VSCE_PAT` 或交互登录）：
-  - `npm run publish:marketplace`（使用当前版本号）
-  - `npm run publish:marketplace:patch|minor|major`（自动 bump 版本并发布）
-- 发布到 Open VSX：`OVSX_TOKEN=xxxx npm run publish:openvsx`
-
----
-
-欢迎提交 Issue/PR：补充更多 @khgame/tables 能力（模板/校验/导出等）或优化 Raw 视图（配色/开关/性能）。
-
-## License / 许可证
+## License
 
 This project is licensed under the [MIT License](LICENSE).

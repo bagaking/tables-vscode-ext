@@ -6,10 +6,9 @@ This project follows the shape of [Keep a Changelog](https://keepachangelog.com/
 
 ## Unreleased
 
-### Added
+### Changed
 
-- Documented the local package inspection and dual-registry release workflow for VS Code Marketplace and Open VSX.
-- Made the VSIX package boundary explicit so generated `.vsix` archives are not bundled into future extension packages.
+- Reworked the README structure around user install / use, maintainer validation, VSIX package boundary, dual-registry release gates, and known constraints.
 
 ## 0.0.1
 
