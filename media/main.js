@@ -1,7 +1,6 @@
 (function () {
   const vscode = acquireVsCodeApi();
   const gridElement = document.getElementById('grid');
-  const statusArea = document.getElementById('status-area');
   const statusIndicatorEl = document.getElementById('status-indicator');
   const statusTextEl = document.getElementById('status-text');
   const saveButton = document.getElementById('save');
@@ -9,6 +8,12 @@
   const exportMdButton = document.getElementById('export-md');
   const runDiagButton = document.getElementById('run-diag');
   const rawViewElement = document.getElementById('raw-view');
+  const schemaItemsElement = document.getElementById('schema-items');
+  const inspectorKickerElement = document.getElementById('inspector-kicker');
+  const inspectorTitleElement = document.getElementById('inspector-title');
+  const inspectorSubtitleElement = document.getElementById('inspector-subtitle');
+  const inspectorBodyElement = document.getElementById('inspector-body');
+  const tableMetaElement = document.getElementById('table-meta');
   /** @type {HTMLDivElement | null} */
   let rawOverlayElement = null;
   /** @type {HTMLPreElement | null} */
@@ -87,6 +92,9 @@
   let contextMenuCleanup = null;
   /** @type {Record<string, EnumOption[]>} */
   let enumContextOptions = {};
+  let issueState = createEmptyIssueState();
+  let selectedCell = null;
+  let currentEditState = 'saved';
 
   const BRACKET_PAIRS = {
     '(': ')',
@@ -115,6 +123,71 @@
   const HEADER_WIDTH_BUFFER = 6;
   const RAW_VIEW_DEBOUNCE_MS = 250;
   const CONTEXT_MENU_ID = 'kh-context-menu';
+
+  function createEmptyIssueState() {
+    return {
+      cellIssues: new Map(),
+      rowSeverity: new Map(),
+      columnSeverity: new Map(),
+      errors: [],
+      warnings: [],
+      firstIssue: null
+    };
+  }
+
+  function severityRank(severity) {
+    return severity === 'error' ? 2 : severity === 'warning' ? 1 : 0;
+  }
+
+  function worstSeverity(a, b) {
+    return severityRank(a) >= severityRank(b) ? a : b;
+  }
+
+  function makeCellKey(rowIndex, columnIndex) {
+    return `${rowIndex}:${columnIndex}`;
+  }
+
+  function addIssue(nextState, issue) {
+    if (!issue || typeof issue.rowIndex !== 'number' || typeof issue.columnIndex !== 'number') {
+      return;
+    }
+    const severity = issue.severity === 'warning' ? 'warning' : 'error';
+    const normalized = { ...issue, severity };
+    const key = makeCellKey(normalized.rowIndex, normalized.columnIndex);
+    const bucket = nextState.cellIssues.get(key) || [];
+    bucket.push(normalized);
+    nextState.cellIssues.set(key, bucket);
+    nextState.rowSeverity.set(
+      normalized.rowIndex,
+      worstSeverity(nextState.rowSeverity.get(normalized.rowIndex), severity)
+    );
+    nextState.columnSeverity.set(
+      normalized.columnIndex,
+      worstSeverity(nextState.columnSeverity.get(normalized.columnIndex), severity)
+    );
+    if (severity === 'warning') {
+      nextState.warnings.push(normalized);
+    } else {
+      nextState.errors.push(normalized);
+    }
+    if (!nextState.firstIssue || severityRank(severity) > severityRank(nextState.firstIssue.severity)) {
+      nextState.firstIssue = normalized;
+    }
+  }
+
+  function getIssuesForCell(rowIndex, columnIndex) {
+    if (typeof rowIndex !== 'number' || typeof columnIndex !== 'number') {
+      return [];
+    }
+    return issueState.cellIssues.get(makeCellKey(rowIndex, columnIndex)) || [];
+  }
+
+  function getCellWorstSeverity(rowIndex, columnIndex) {
+    return getIssuesForCell(rowIndex, columnIndex).reduce(
+      (severity, issue) => worstSeverity(severity, issue.severity),
+      undefined
+    );
+  }
 
   // --- Diagnostics hooks ---
   function postDiagnostics(scope, details) {
@@ -536,6 +609,37 @@
     };
   }
 
+  function getMarkRowIndex() {
+    if (!khTablesState.active || !khTablesState.detection.hasMarkers) {
+      return null;
+    }
+    return khTablesState.detection.markRowIndex ?? 0;
+  }
+
+  function getFieldRowIndex() {
+    const markRowIndex = getMarkRowIndex();
+    return markRowIndex == null ? null : markRowIndex + 1;
+  }
+
+  function getFieldNameForColumn(columnIndex) {
+    const fieldRowIndex = getFieldRowIndex();
+    if (fieldRowIndex != null && Array.isArray(table[fieldRowIndex])) {
+      const value = table[fieldRowIndex][columnIndex];
+      if (value != null && String(value).trim().length > 0) {
+        return String(value).trim();
+      }
+    }
+    return toColumnLabel(columnIndex);
+  }
+
+  function getColumnTokenText(columnIndex) {
+    const markRowIndex = getMarkRowIndex();
+    if (markRowIndex != null && Array.isArray(table[markRowIndex])) {
+      return table[markRowIndex][columnIndex] != null ? String(table[markRowIndex][columnIndex]) : '';
+    }
+    return '';
+  }
+
   function resolveGridFontDescriptor() {
     const target = gridElement || document.body;
     if (!target) {
@@ -931,6 +1035,194 @@
       }
       suppressModeSelectNotifications = false;
     }
+    updateSchemaRail();
+    updateTableMeta();
+    updateInspector();
+  }
+
+  function createSchemaItem(label, tone, title) {
+    const item = document.createElement('span');
+    item.className = 'schema-item';
+    if (tone) {
+      item.dataset.tone = tone;
+    }
+    if (title) {
+      item.title = title;
+    }
+    const dot = document.createElement('span');
+    dot.className = 'schema-dot';
+    dot.setAttribute('aria-hidden', 'true');
+    const text = document.createElement('span');
+    text.textContent = label;
+    item.appendChild(dot);
+    item.appendChild(text);
+    return item;
+  }
+
+  function updateSchemaRail() {
+    if (!schemaItemsElement) {
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    const markRowIndex = getMarkRowIndex();
+    const fieldRowIndex = getFieldRowIndex();
+    const enumCount = columnTokenStyles.filter((info) => info?.columnType === 'enum').length;
+    const tidPinned = columnTokenStyles.some((info) => info?.columnType === 'tid');
+    const errors = issueState.errors.length;
+    const warnings = issueState.warnings.length;
+
+    fragment.appendChild(createSchemaItem(khTablesState.active ? 'KH schema' : 'Normal CSV', khTablesState.active ? 'schema' : 'muted'));
+    if (markRowIndex != null) {
+      fragment.appendChild(createSchemaItem(`Mark ${markRowIndex + 1}`, 'muted'));
+      if (fieldRowIndex != null && fieldRowIndex < table.length) {
+        fragment.appendChild(createSchemaItem(`Field ${fieldRowIndex + 1}`, 'muted'));
+      }
+    }
+    if (Object.keys(enumContextOptions).length > 0) {
+      fragment.appendChild(createSchemaItem('Context', 'schema', 'Enum context loaded'));
+    }
+    if (enumCount > 0) {
+      fragment.appendChild(createSchemaItem(`${enumCount} enum`, 'enum'));
+    }
+    if (tidPinned) {
+      fragment.appendChild(createSchemaItem('TID pinned', 'key'));
+    }
+    fragment.appendChild(createSchemaItem(`${errors} errors`, errors > 0 ? 'error' : 'muted'));
+    if (warnings > 0) {
+      fragment.appendChild(createSchemaItem(`${warnings} warnings`, 'warning'));
+    }
+
+    schemaItemsElement.replaceChildren(fragment);
+  }
+
+  function updateTableMeta() {
+    if (!tableMetaElement) {
+      return;
+    }
+    const editLabel = currentEditState === 'dirty'
+      ? 'Unsaved'
+      : currentEditState === 'saving'
+        ? 'Saving'
+        : 'Saved';
+    const schemaLabel = khTablesState.active ? 'KH schema' : 'CSV';
+    const issueLabel = issueState.errors.length > 0
+      ? ` · ${issueState.errors.length} errors`
+      : issueState.warnings.length > 0
+        ? ` · ${issueState.warnings.length} warnings`
+        : '';
+    tableMetaElement.textContent = `TableLens · ${editLabel} · ${schemaLabel} · ${table.length} rows · ${columnCount} columns · ${newline === '\r\n' ? 'CRLF' : 'LF'}${issueLabel}`;
+    tableMetaElement.dataset.tone = issueState.errors.length > 0 ? 'error' : issueState.warnings.length > 0 ? 'warning' : 'muted';
+  }
+
+  function createInspectorRow(label, value, tone) {
+    const row = document.createElement('div');
+    row.className = 'inspector-row';
+    if (tone) {
+      row.dataset.tone = tone;
+    }
+    const labelEl = document.createElement('span');
+    labelEl.className = 'inspector-label';
+    labelEl.textContent = label;
+    const valueEl = document.createElement('span');
+    valueEl.className = 'inspector-value';
+    valueEl.textContent = value == null ? '' : String(value);
+    row.appendChild(labelEl);
+    row.appendChild(valueEl);
+    return row;
+  }
+
+  function createInspectorBadge(label, tone) {
+    const badge = document.createElement('span');
+    badge.className = 'inspector-badge';
+    if (tone) {
+      badge.dataset.tone = tone;
+    }
+    badge.textContent = label;
+    return badge;
+  }
+
+  function updateInspector() {
+    if (!inspectorTitleElement || !inspectorSubtitleElement || !inspectorBodyElement || !inspectorKickerElement) {
+      return;
+    }
+
+    const fallbackIssue = issueState.firstIssue;
+    const rowIndex = selectedCell?.rowIndex;
+    const columnIndex = selectedCell?.columnIndex;
+    const selectedIssues = typeof rowIndex === 'number' && typeof columnIndex === 'number'
+      ? getIssuesForCell(rowIndex, columnIndex)
+      : [];
+    const activeIssue = selectedIssues[0] || fallbackIssue;
+
+    inspectorBodyElement.replaceChildren();
+
+    if (activeIssue) {
+      inspectorKickerElement.textContent = 'Issue';
+      inspectorTitleElement.textContent = `${toColumnLabel(activeIssue.columnIndex)}${activeIssue.rowIndex + 1}`;
+      inspectorSubtitleElement.textContent = `${getFieldNameForColumn(activeIssue.columnIndex)} · ${activeIssue.severity}`;
+      const badgeLine = document.createElement('div');
+      badgeLine.className = 'inspector-badges';
+      badgeLine.appendChild(createInspectorBadge(activeIssue.title || activeIssue.kind || 'issue', activeIssue.severity));
+      inspectorBodyElement.appendChild(badgeLine);
+      inspectorBodyElement.appendChild(createInspectorRow('value', activeIssue.value ?? getTableCellValue(activeIssue.rowIndex, activeIssue.columnIndex)));
+      if (activeIssue.expected) {
+        inspectorBodyElement.appendChild(createInspectorRow('expected', activeIssue.expected));
+      }
+      if (activeIssue.source) {
+        inspectorBodyElement.appendChild(createInspectorRow('source', activeIssue.source));
+      }
+      if (Array.isArray(activeIssue.allowedValues) && activeIssue.allowedValues.length > 0) {
+        inspectorBodyElement.appendChild(createInspectorRow('allowed', activeIssue.allowedValues.join(', ')));
+      }
+      inspectorBodyElement.appendChild(createInspectorRow('severity', activeIssue.severity, activeIssue.severity));
+
+      const related = issueState.errors.concat(issueState.warnings).filter((issue) => issue !== activeIssue).slice(0, 3);
+      if (related.length > 0) {
+        const section = document.createElement('div');
+        section.className = 'inspector-section';
+        const title = document.createElement('div');
+        title.className = 'inspector-section-title';
+        title.textContent = 'Other issues';
+        section.appendChild(title);
+        related.forEach((issue) => {
+          section.appendChild(createInspectorRow(`${toColumnLabel(issue.columnIndex)}${issue.rowIndex + 1}`, issue.title, issue.severity));
+        });
+        inspectorBodyElement.appendChild(section);
+      }
+      return;
+    }
+
+    if (typeof columnIndex === 'number') {
+      const tokenInfo = columnTokenStyles[columnIndex];
+      const fieldName = getFieldNameForColumn(columnIndex);
+      const tokenText = getColumnTokenText(columnIndex);
+      inspectorKickerElement.textContent = 'Column';
+      inspectorTitleElement.textContent = `Column ${toColumnLabel(columnIndex)}`;
+      inspectorSubtitleElement.textContent = `${fieldName} · ${tokenInfo?.columnType || 'text'}`;
+      inspectorBodyElement.appendChild(createInspectorRow('type', tokenInfo?.columnType || 'text'));
+      inspectorBodyElement.appendChild(createInspectorRow('field', fieldName));
+      if (tokenText) {
+        inspectorBodyElement.appendChild(createInspectorRow('mark', tokenText));
+      }
+      if (rowIndex != null) {
+        inspectorBodyElement.appendChild(createInspectorRow('selected', getTableCellValue(rowIndex, columnIndex)));
+      }
+      const enumMeta = tokenInfo?.columnType === 'enum'
+        ? collectEnumMetadataForToken(tokenInfo.enumToken || tokenText)
+        : null;
+      if (enumMeta) {
+        inspectorBodyElement.appendChild(createInspectorRow('context', `enum ${enumMeta.enumName}`));
+        inspectorBodyElement.appendChild(createInspectorRow('values', String(enumMeta.values.length)));
+      }
+      inspectorBodyElement.appendChild(createInspectorRow('validation', 'clean', 'success'));
+      return;
+    }
+
+    inspectorKickerElement.textContent = 'Selection';
+    inspectorTitleElement.textContent = 'No cell';
+    inspectorSubtitleElement.textContent = 'Select a cell to inspect schema state.';
+    inspectorBodyElement.appendChild(createInspectorRow('rows', String(table.length)));
+    inspectorBodyElement.appendChild(createInspectorRow('columns', String(columnCount)));
   }
 
   function toColumnLabel(index) {
@@ -1197,7 +1489,9 @@
   }
 
   function setEditStatus(state, label) {
+    currentEditState = state === 'dirty' || state === 'saving' || state === 'saved' ? state : currentEditState;
     if (!editStatusElement) {
+      updateTableMeta();
       return;
     }
     editStatusElement.textContent = label;
@@ -1212,6 +1506,7 @@
       editIconElement.title = label || '';
       editIconElement.innerHTML = svg(iconName);
     }
+    updateTableMeta();
   }
 
   function updateRawViewText(csvText) {
@@ -1294,6 +1589,7 @@
       rowMultiSelectWithClick: true,
       animateRows: true,
       onCellValueChanged: handleCellValueChanged,
+      onCellFocused: handleCellFocused,
       getRowClass: deriveRowClass,
       onCellContextMenu: handleCellContextMenu,
       onHeaderContextMenu: handleHeaderContextMenu
@@ -1343,7 +1639,39 @@
     ensureTableShape();
     const normalizedValue = event.newValue != null ? String(event.newValue) : '';
     table[rowIndex][columnIndex] = normalizedValue;
+    recomputeIssueState();
+    updateSchemaRail();
+    updateInspector();
+    updateTableMeta();
     sendUpdate('Edited');
+  }
+
+  function handleCellFocused(event) {
+    if (!event || typeof event.rowIndex !== 'number') {
+      selectedCell = null;
+      updateInspector();
+      return;
+    }
+    const columnId = event.column?.getColId?.();
+    const columnIndex = parseColumnIndexFromId(columnId);
+    let sourceRowIndex = event.rowIndex;
+    if (event.rowPinned && typeof event.api?.getPinnedTopRow === 'function') {
+      const pinnedNode = event.api.getPinnedTopRow(event.rowIndex);
+      if (typeof pinnedNode?.data?.__rowIndex === 'number') {
+        sourceRowIndex = pinnedNode.data.__rowIndex;
+      }
+    } else if (typeof event.api?.getDisplayedRowAtIndex === 'function') {
+      const rowNode = event.api.getDisplayedRowAtIndex(event.rowIndex);
+      if (typeof rowNode?.data?.__rowIndex === 'number') {
+        sourceRowIndex = rowNode.data.__rowIndex;
+      }
+    }
+    selectedCell = {
+      rowIndex: sourceRowIndex,
+      columnIndex: Number.isFinite(columnIndex) ? columnIndex : null,
+      pinned: event.rowPinned || null
+    };
+    updateInspector();
   }
 
   function ensureTableShape() {
@@ -1374,6 +1702,7 @@
       : null;
 
     columnTokenStyles = deriveTokenStyles(markRowIndex, columnCount);
+    recomputeIssueState();
     const rowModels = table.map((row, rowIndex) => {
       const record = { __rowIndex: rowIndex };
       for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
@@ -1403,6 +1732,9 @@
     }
 
     queueFitColumns();
+    updateSchemaRail();
+    updateInspector();
+    updateTableMeta();
   }
 
   function parseColumnIndexFromId(colId) {
@@ -1612,6 +1944,160 @@
     };
   }
 
+  function collectEnumMetadataForToken(enumToken) {
+    const parsed = parseEnumTokenDetails(enumToken);
+    if (!parsed || !parsed.enumName) {
+      return null;
+    }
+
+    const mergedOptions = [];
+    const seenValues = new Set();
+    const contextOptions = enumContextOptions[parsed.enumName];
+    if (Array.isArray(contextOptions)) {
+      contextOptions.forEach((option) => {
+        if (!option || typeof option.value !== 'string' || option.value.length === 0) {
+          return;
+        }
+        if (seenValues.has(option.value)) {
+          return;
+        }
+        seenValues.add(option.value);
+        mergedOptions.push(option);
+      });
+    }
+
+    parsed.fallbacks.forEach((fallback) => {
+      if (!fallback || seenValues.has(fallback)) {
+        return;
+      }
+      seenValues.add(fallback);
+      mergedOptions.push({ key: fallback, value: fallback, source: 'fallback' });
+    });
+
+    return {
+      enumName: parsed.enumName,
+      options: mergedOptions,
+      values: mergedOptions.map((option) => option.value)
+    };
+  }
+
+  function hasBalancedStructure(value) {
+    const text = value == null ? '' : String(value).trim();
+    if (!text) {
+      return true;
+    }
+    const stack = [];
+    for (const char of Array.from(text)) {
+      if (BRACKET_OPENERS.has(char)) {
+        stack.push(BRACKET_PAIRS[char]);
+        continue;
+      }
+      if (BRACKET_CLOSERS[char]) {
+        if (stack.pop() !== char) {
+          return false;
+        }
+      }
+    }
+    return stack.length === 0;
+  }
+
+  function recomputeIssueState() {
+    const nextState = createEmptyIssueState();
+    const markRowIndex = getMarkRowIndex();
+    if (markRowIndex == null || !Array.isArray(columnTokenStyles) || columnTokenStyles.length === 0) {
+      issueState = nextState;
+      return;
+    }
+
+    const dataStartIndex = Math.min(table.length, markRowIndex + 2);
+    const tidColumns = [];
+
+    columnTokenStyles.forEach((tokenInfo, columnIndex) => {
+      if (!tokenInfo) {
+        return;
+      }
+
+      if (tokenInfo.columnType === 'tid') {
+        tidColumns.push(columnIndex);
+      }
+
+      if (tokenInfo.columnType === 'enum') {
+        const enumToken = tokenInfo.enumToken || getColumnTokenText(columnIndex);
+        const enumMeta = collectEnumMetadataForToken(enumToken);
+        if (!enumMeta || !Array.isArray(enumMeta.values) || enumMeta.values.length === 0) {
+          return;
+        }
+        const allowedValues = new Set(enumMeta.values);
+        for (let rowIndex = dataStartIndex; rowIndex < table.length; rowIndex += 1) {
+          const rawValue = getTableCellValue(rowIndex, columnIndex).trim();
+          if (!rawValue) {
+            continue;
+          }
+          const tokens = rawValue.split('|').map((token) => token.trim()).filter(Boolean);
+          const invalid = tokens.find((token) => !allowedValues.has(token));
+          if (invalid) {
+            addIssue(nextState, {
+              rowIndex,
+              columnIndex,
+              severity: 'error',
+              kind: 'enum',
+              title: 'enum value not found',
+              message: `${invalid} is not in enum ${enumMeta.enumName}`,
+              value: invalid,
+              expected: `enum ${enumMeta.enumName}`,
+              source: 'context.enums.json',
+              allowedValues: enumMeta.values.slice(0, 6)
+            });
+          }
+        }
+      }
+
+      if (tokenInfo.columnType === 'struct') {
+        for (let rowIndex = dataStartIndex; rowIndex < table.length; rowIndex += 1) {
+          const rawValue = getTableCellValue(rowIndex, columnIndex);
+          if (!hasBalancedStructure(rawValue)) {
+            addIssue(nextState, {
+              rowIndex,
+              columnIndex,
+              severity: 'warning',
+              kind: 'struct',
+              title: 'struct parse warning',
+              message: 'Unbalanced brackets in structured value',
+              value: rawValue
+            });
+          }
+        }
+      }
+    });
+
+    tidColumns.forEach((columnIndex) => {
+      const seen = new Map();
+      for (let rowIndex = dataStartIndex; rowIndex < table.length; rowIndex += 1) {
+        const rawValue = getTableCellValue(rowIndex, columnIndex).trim();
+        if (!rawValue) {
+          continue;
+        }
+        const firstRow = seen.get(rawValue);
+        if (typeof firstRow === 'number') {
+          addIssue(nextState, {
+            rowIndex,
+            columnIndex,
+            severity: 'error',
+            kind: 'duplicate-tid',
+            title: 'duplicate tid',
+            message: `${rawValue} already appears on row ${firstRow + 1}`,
+            value: rawValue,
+            expected: 'unique tid'
+          });
+        } else {
+          seen.set(rawValue, rowIndex);
+        }
+      }
+    });
+
+    issueState = nextState;
+  }
+
   function calculateInitialColumnWidth(columnIndex, markRowIndex, pinnedRows) {
     const headerLabel = toColumnLabel(columnIndex);
     const headerWidth = measureTextWidth(headerLabel, { fontWeight: '600' }) + HEADER_WIDTH_BUFFER;
@@ -1717,7 +2203,21 @@
           }
           return pinnedCount + (node.rowIndex ?? 0) + 1;
         },
-        cellClass: 'kh-row-number-cell',
+        cellClass: (params) => {
+          const classes = ['kh-row-number-cell'];
+          const rowIndex = params?.data?.__rowIndex;
+          const rowClass = typeof rowIndex === 'number' ? getRowClassByIndex(rowIndex) : undefined;
+          if (rowClass === 'kh-mark-row') {
+            classes.push('kh-row-marker-mark');
+          } else if (rowClass === 'kh-field-row') {
+            classes.push('kh-row-marker-field');
+          }
+          const severity = typeof rowIndex === 'number' ? issueState.rowSeverity.get(rowIndex) : undefined;
+          if (severity) {
+            classes.push(`kh-row-has-${severity}`);
+          }
+          return classes.join(' ');
+        },
         headerClass: 'kh-row-number-header'
       }
     ];
@@ -1734,6 +2234,8 @@
         width: columnAutoWidths[index],
         pinned: index < pinnedDataColumns ? 'left' : undefined,
         lockPinned: index < pinnedDataColumns,
+        headerClass: composeHeaderClasses(index, tokenInfo),
+        headerTooltip: buildHeaderTooltip(index, tokenInfo),
         cellRenderer: enumMeta ? createEnumCellRenderer(enumMeta) : rainbowCellRenderer,
         cellEditor: enumMeta ? EnumSelectEditor : undefined,
         cellEditorParams: enumMeta ? { options: enumMeta.options } : undefined,
@@ -1743,6 +2245,31 @@
     }
 
     return defs;
+  }
+
+  function composeHeaderClasses(columnIndex, tokenInfo) {
+    const classes = ['kh-header-cell'];
+    if (tokenInfo?.columnType) {
+      classes.push(`kh-header-type-${tokenInfo.columnType}`);
+    }
+    const severity = issueState.columnSeverity.get(columnIndex);
+    if (severity) {
+      classes.push(`kh-header-has-${severity}`);
+    }
+    return classes.join(' ');
+  }
+
+  function buildHeaderTooltip(columnIndex, tokenInfo) {
+    const parts = [`${toColumnLabel(columnIndex)} · ${getFieldNameForColumn(columnIndex)}`];
+    if (tokenInfo?.columnType) {
+      parts.push(tokenInfo.columnType);
+    }
+    const severity = issueState.columnSeverity.get(columnIndex);
+    if (severity) {
+      const count = issueState.errors.concat(issueState.warnings).filter((issue) => issue.columnIndex === columnIndex).length;
+      parts.push(`${count} ${severity}${count === 1 ? '' : 's'}`);
+    }
+    return parts.join(' · ');
   }
 
   function composeCellClasses(columnIndex, params, tokenStyles) {
@@ -1766,6 +2293,11 @@
       classes.push(...tokenInfo.dataClasses);
     }
 
+    const severity = typeof rowIndex === 'number' ? getCellWorstSeverity(rowIndex, columnIndex) : undefined;
+    if (severity) {
+      classes.push(`kh-cell-${severity}`);
+    }
+
     if (classes.length === 0) {
       return undefined;
     }
@@ -1773,6 +2305,10 @@
   }
 
   function getColumnBaseClass(columnIndex) {
+    const tokenInfo = columnTokenStyles[columnIndex];
+    if (tokenInfo?.columnType === 'tid') {
+      return 'kh-col-identity';
+    }
     if (columnIndex === 0 && khTablesState.detection.hasMarkers) {
       return 'kh-col-primary-key';
     }
@@ -1813,7 +2349,7 @@
       if (!info) {
         break;
       }
-      if (info.columnType === 'at' || info.columnType === 'alias' || info.columnType === 'enum') {
+      if (info.columnType === 'at' || info.columnType === 'tid' || info.columnType === 'alias' || info.columnType === 'enum') {
         count += 1;
       } else {
         break;
@@ -1833,6 +2369,9 @@
     }
     if (normalized.startsWith('enum')) {
       return 'enum';
+    }
+    if (new RegExp('^(?:int|uint|float|double|number)(?:\\?|(?:\\[\\])?)*$', 'u').test(normalized)) {
+      return 'metric';
     }
     if (
       normalized.includes('alias') ||
@@ -1888,7 +2427,7 @@
       dataClasses.add('kh-col-struct');
     }
 
-    if (columnType === 'at' || columnType === 'alias' || columnType === 'enum' || columnType === 'tid') {
+    if (columnType === 'at' || columnType === 'alias' || columnType === 'enum' || columnType === 'tid' || columnType === 'metric') {
       markClasses.add('kh-col-emphasis');
       fieldClasses.add('kh-col-emphasis');
       dataClasses.add('kh-col-emphasis');
@@ -1921,6 +2460,9 @@
   function parseCsv(csvText) {
     if (typeof csvText !== 'string' || csvText.length === 0) {
       applyRowsToTable([[]]);
+      updateSchemaRail();
+      updateInspector();
+      updateTableMeta();
       return;
     }
 
@@ -1938,6 +2480,7 @@
     }
 
     applyRowsToTable(parseResult.data);
+    updateTableMeta();
   }
 
   function applyRawViewChanges(csvText) {
@@ -2050,6 +2593,7 @@
     }
     updateRawViewText(csv);
     setEditStatus('dirty', 'Unsaved changes');
+    updateTableMeta();
   }
 
   function addRow(afterIndex) {
@@ -2159,6 +2703,7 @@
     setStatus('Save requested', 'info');
     updateRawViewText(csv);
     setEditStatus('saving', 'Saving…');
+    updateTableMeta();
   }
 
   function restoreFromState() {

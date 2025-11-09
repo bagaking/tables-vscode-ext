@@ -387,28 +387,54 @@ class CsvEditorProvider implements vscode.CustomTextEditorProvider {
     <title>Tables CSV Editor</title>
   </head>
   <body>
-    <div class="status-bar top" role="group" aria-label="Editor actions">
+    <div class="command-strip" role="group" aria-label="Editor actions">
+      <div class="brand-lockup" aria-label="TableLens">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">TableLens</span>
+      </div>
+      <div class="status-group compact" id="edit-group" aria-live="polite">
+        <span class="status-icon" id="edit-icon" aria-hidden="true"></span>
+        <span id="edit-status" class="status-value">Saved</span>
+      </div>
+      <div class="command-spacer" aria-hidden="true"></div>
       <div class="status-group actions">
-        <button id="toggle-raw" aria-pressed="false">Raw CSV</button>
-        <button id="export-md" aria-pressed="false" title="Export as GitHub Flavored Markdown">Export MD</button>
+        <button id="toggle-raw" aria-pressed="false" title="Toggle Raw CSV view">Raw</button>
+        <button id="export-md" aria-pressed="false" title="Export as GitHub Flavored Markdown">Export</button>
         <button id="run-diag" aria-pressed="false" title="Run Diagnostics">Diag</button>
-        <button id="save">Save</button>
+        <button id="save" title="Save this CSV file">Save</button>
       </div>
     </div>
-    <div id="view-container">
-      <div id="grid" class="ag-theme-quartz" aria-label="CSV grid"></div>
-      <textarea
-        id="raw-view"
-        aria-label="Raw CSV"
-        hidden
-        spellcheck="false"
-        wrap="off"
-      ></textarea>
+    <div class="schema-rail" role="group" aria-label="Schema status">
+      <div class="schema-items" id="schema-items" aria-live="polite"></div>
+      <div id="status-area" role="status" aria-live="polite">
+        <button id="status-indicator" class="status-indicator" aria-label="Status" title="Ready" type="button"></button>
+        <span id="status-text" class="sr-only">Ready</span>
+      </div>
     </div>
-    <div class="status-bar bottom" role="group" aria-label="Editor status">
+    <div id="workspace-shell">
+      <div id="view-container">
+        <div id="grid" class="ag-theme-quartz" aria-label="CSV grid"></div>
+        <textarea
+          id="raw-view"
+          aria-label="Raw CSV"
+          hidden
+          spellcheck="false"
+          wrap="off"
+        ></textarea>
+      </div>
+      <aside id="inspector" aria-label="Selection inspector">
+        <div class="inspector-header">
+          <span class="inspector-kicker" id="inspector-kicker">Selection</span>
+          <h2 id="inspector-title">No cell</h2>
+          <p id="inspector-subtitle">Select a cell to inspect schema state.</p>
+        </div>
+        <div id="inspector-body" class="inspector-body"></div>
+      </aside>
+    </div>
+    <div class="bottom-status" role="group" aria-label="Editor status">
       <div class="status-group" id="kh-mode">
         <span class="status-icon" id="kh-mode-icon" aria-hidden="true"></span>
-        <span class="status-label">Mode</span>
+        <span class="status-label">Schema</span>
         <select id="kh-mode-select" aria-label="Tables mode">
           <option value="auto">Auto detect</option>
           <option value="on">Force on</option>
@@ -416,16 +442,8 @@ class CsvEditorProvider implements vscode.CustomTextEditorProvider {
         </select>
         <span id="kh-mode-status" aria-live="polite"></span>
       </div>
-      <div class="status-group" id="edit-group" aria-live="polite">
-        <span class="status-icon" id="edit-icon" aria-hidden="true"></span>
-        <span class="status-label">Edit</span>
-        <span id="edit-status" class="status-value">Saved</span>
-      </div>
       <div class="status-spacer" aria-hidden="true"></div>
-      <div id="status-area" role="status" aria-live="polite">
-        <button id="status-indicator" class="status-indicator" aria-label="Status" title="Ready" type="button"></button>
-        <span id="status-text" class="sr-only">Ready</span>
-      </div>
+      <div id="table-meta" class="table-meta">TableLens · Saved · 0 rows · 0 columns</div>
     </div>
     <script nonce="${nonce}" src="${papaparseScriptUri}"></script>
     <script nonce="${nonce}" src="${agGridScriptUri}"></script>
