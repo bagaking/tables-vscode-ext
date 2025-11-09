@@ -32,3 +32,6 @@ jobs:
 
       - name: Run CI
         run: pnpm run ci
+
+      - name: Check package boundary
+        run: pnpm run package:inspect

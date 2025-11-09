@@ -67,7 +67,7 @@ pnpm run ci
 pnpm run package:inspect
 ```
 
-`package:inspect` 会运行 VS Code extension prepublish 步骤，并列出将进入扩展包的文件。当前包应只包含运行时所需的 `dist/`、`media/`、`LICENSE`、`README.md`、`CHANGELOG.md` 和 `package.json` 等发布资产。
+`package:inspect` 会运行 VS Code extension prepublish 步骤，列出将进入扩展包的文件，并对发布边界做机器可判定的 denylist 检查；如果 `src/`、`tests/`、`example/`、`.github/`、`.vscode/`、已有 `.vsix`、锁文件、`AGENTS.md`、`requirements.md`、`.env` 或 token/secret 类文件进入包内，命令会以非 0 退出。当前包应只包含运行时所需的 `dist/`、`media/`、`LICENSE`、`README.md`、`CHANGELOG.md` 和 `package.json` 等发布资产。
 
 ## 常见工作流
 
@@ -92,7 +92,7 @@ pnpm run package:inspect
 ## 发行与打包
 
 - `pnpm run package:vsix` 使用锁文件内的本地 `vsce` 生成 `.vsix` 包。
-- `pnpm run prepublish:check` 会执行 CI 验证并打印 VSIX 文件清单，适合作为发布前最后一道本地检查。
+- `pnpm run prepublish:check` 会执行 CI 验证、打印 VSIX 文件清单，并在发布边界 denylist 命中时失败，适合作为发布前最后一道本地检查。
 - 本仓库携带 `.vscodeignore`，避免将无关文件（如 `AGENTS.md`、测试、示例、源码、已有 `.vsix` 成品）打入新的 VSIX。
 - 根目录生成的 `.vsix` 是本地发布产物，默认受 `.gitignore` 与 `.vscodeignore` 保护；如需要保留历史成品，应通过 GitHub Release 或 Marketplace/OpenVSX 版本记录归档，而不是依赖扩展包嵌套扩展包。
 
