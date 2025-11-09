@@ -4,7 +4,8 @@ import * as vscode from 'vscode';
 import {
   EnumContextPayload,
   convertContextToEnumPayload,
-  findContextDirectoryForPath
+  findContextDirectoryForPath,
+  loadContextFromDirectory
 } from './features/khTables/enumContext';
 import { KhTablesModeService, KhTablesModeSnapshot, KhTablesOverride } from './features/khTables/state';
 
@@ -317,12 +318,7 @@ class CsvEditorProvider implements vscode.CustomTextEditorProvider {
     }
 
     try {
-      // Lazy import to avoid activation failure if dependency is missing or broken
-      const mod = (await import('@khgame/tables/lib/serializer/core')) as { loadContext?: (dir: string) => unknown };
-      if (!mod || typeof mod.loadContext !== 'function') {
-        throw new Error('loadContext not available');
-      }
-      const rawContext = mod.loadContext(contextDirectory);
+      const rawContext = await loadContextFromDirectory(contextDirectory);
       const payload = convertContextToEnumPayload(rawContext);
       this.enumContextCache.set(contextDirectory, payload ?? null);
       return payload ?? undefined;

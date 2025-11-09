@@ -1,6 +1,6 @@
 # Tables CSV Editor
 
-在 VS Code 中以现代表格体验编辑 CSV，针对 @khgame/tables 提供原生支持：自动识别 Mark/Desc 行与类型令牌、枚举下拉与标签化展示、连续主键/别名/枚举列固定等。
+在 VS Code 中以现代表格体验编辑 CSV，针对 @khgame/tables 表头提供编辑辅助：自动识别 Mark 和 Desc 行与类型令牌、枚举下拉与标签化展示、连续主键、别名、枚举列固定等。
 
 ## 功能亮点
 
@@ -20,11 +20,11 @@
 - 一键导出（GFM）
   - 通过命令 `Export CSV as GFM Markdown` 将当前 CSV 转为 GitHub Flavored Markdown 表格并保存；自动转义 `|`、保留多行为 `<br/>`
 
-- 原生 @khgame/tables 支持（0 配置）
+- @khgame/tables 表头辅助（0 配置）
   - 自动检测 Mark Row（前 16 行采样，命中 `@/$ghost/$strict/enum<...>/map/pair/...` 等令牌且置信度阈值达标）
   - 列类型判定与配色：`@/alias/enum/tid/struct/comment/default`
   - 枚举编辑与展示：
-    - 读取工作区或上级目录中的 `context.*.json`（含 `context/`、`contexts/`、`.context/` 子目录）并合并为枚举候选
+    - 读取工作区或上级目录中的 `context.*.json`（含 `context/`、`contexts/`、`.context/` 子目录）并合并常见 `context.enums` 对象和数组定义为枚举候选；表引用型 `ref` 枚举仍需由 @khgame/tables 工具链生成
     - 数据行以标签样式展示，支持 `enum<Name|Fallback1|...>` 的回退项（标记 `fallback`）
     - 单元格编辑为下拉选择（保留当前非候选值为 raw value）
   - 便利操作：行号右键可复制首个 `tid` 列；Mark/Desc 行固定置顶；连续主键/别名/枚举列固定在左侧
@@ -39,13 +39,21 @@
 1) 安装依赖并编译：
 
 ```bash
-npm install
-npm run compile
+pnpm install --frozen-lockfile
+pnpm run compile
 ```
 
 2) 开发调试：在 VS Code 中按 `F5` 启动 Extension Development Host。
 
 3) 打开任意 `*.csv` 文件即进入编辑器；或在命令面板执行 `Open CSV in Tables Editor`。
+
+## 本地验证
+
+```bash
+pnpm run ci
+```
+
+该命令会编译 TypeScript、运行当前 Node 单元测试，并生成 `.vsix` 包，覆盖 CI 使用的最小发布置信度检查。
 
 ## 常见工作流
 
@@ -69,7 +77,7 @@ npm run compile
 
 ## 发行与打包
 
-- `npx vsce package` 生成 `.vsix` 包；本仓库携带 `.vscodeignore` 避免将无关文件（如 `AGENTS.md`、测试、示例、源码）打入。
+- `pnpm run package:vsix` 使用锁文件内的本地 `vsce` 生成 `.vsix` 包；本仓库携带 `.vscodeignore` 避免将无关文件（如 `AGENTS.md`、测试、示例、源码）打入。
 
 ### 脚本命令（本地/发布）
 

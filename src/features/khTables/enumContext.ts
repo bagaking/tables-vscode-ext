@@ -13,18 +13,23 @@ export interface EnumContextPayload {
   readonly enums: Record<string, readonly EnumOptionPayload[]>;
 }
 
+type EnumPrimitive = string | number | boolean;
+
 export interface FileSystemHost {
   stat(targetPath: string): Promise<Stats>;
   readdir(targetPath: string): Promise<string[]>;
+  readFile(targetPath: string): Promise<string>;
 }
 
 const defaultFsHost: FileSystemHost = {
   stat: (targetPath) => fs.stat(targetPath),
-  readdir: (targetPath) => fs.readdir(targetPath)
+  readdir: (targetPath) => fs.readdir(targetPath),
+  readFile: (targetPath) => fs.readFile(targetPath, 'utf8')
 };
 
-export const CONTEXT_FILENAME_PATTERN = /^context\..*\.json$/i;
+export const CONTEXT_FILENAME_PATTERN = new RegExp('^context[.].*[.]json$', 'i');
 export const CONTEXT_SUBDIRECTORIES = ['context', 'contexts', '.context'];
+const BASE_CONTEXT_FILENAME_PATTERN = new RegExp('^context[.][^.]+[.]json$', 'i');
 
 export async function hasContextFiles(
   dir: string,
@@ -140,6 +145,33 @@ export async function findContextDirectoryForPath(
   return undefined;
 }
 
+export async function loadContextFromDirectory(
+  dir: string,
+  fileSystem: FileSystemHost = defaultFsHost
+): Promise<unknown> {
+  const entries = await fileSystem.readdir(dir);
+  const context: Record<string, unknown> = {};
+
+  for (const entry of entries.filter(isContextFileName).sort(compareContextFileNames)) {
+    const blobName = entry.replace(new RegExp('^context[.]', 'i'), '').replace(new RegExp('[.]json$', 'i'), '').split('.')[0];
+    if (!blobName) {
+      continue;
+    }
+
+    const content = await fileSystem.readFile(path.join(dir, entry));
+    const parsed = JSON.parse(content) as unknown;
+
+    if (context[blobName] && isRecord(context[blobName]) && isRecord(parsed)) {
+      context[blobName] = { ...context[blobName], ...parsed };
+      continue;
+    }
+
+    context[blobName] = parsed;
+  }
+
+  return context;
+}
+
 export function convertContextToEnumPayload(raw: unknown): EnumContextPayload | undefined {
   if (!raw || typeof raw !== 'object') {
     return undefined;
@@ -153,33 +185,7 @@ export function convertContextToEnumPayload(raw: unknown): EnumContextPayload | 
   const result: Record<string, EnumOptionPayload[]> = {};
 
   for (const [enumName, definition] of Object.entries(enumsBlob as Record<string, unknown>)) {
-    if (!definition || typeof definition !== 'object') {
-      continue;
-    }
-
-    const options: EnumOptionPayload[] = [];
-    for (const [optionKey, rawValue] of Object.entries(definition as Record<string, unknown>)) {
-      if (rawValue === undefined || rawValue === null) {
-        continue;
-      }
-
-      let resolvedValue: unknown = rawValue;
-      let description: string | undefined;
-
-      if (Array.isArray(rawValue)) {
-        resolvedValue = rawValue[0];
-        if (rawValue.length > 1 && rawValue[1] != null) {
-          description = String(rawValue[1]);
-        }
-      }
-
-      if (resolvedValue === undefined || resolvedValue === null) {
-        continue;
-      }
-
-      const valueText = typeof resolvedValue === 'string' ? resolvedValue : String(resolvedValue);
-      options.push({ key: optionKey, value: valueText, description, source: 'context' });
-    }
+    const options = contextDefinitionToOptions(definition);
 
     if (options.length > 0) {
       options.sort((a, b) => a.key.localeCompare(b.key));
@@ -192,4 +198,121 @@ export function convertContextToEnumPayload(raw: unknown): EnumContextPayload | 
   }
 
   return { enums: result };
+}
+
+function contextDefinitionToOptions(definition: unknown): EnumOptionPayload[] {
+  if (Array.isArray(definition)) {
+    return definition.flatMap((item, index) => arrayEntryToOptions(item, index));
+  }
+  if (!isRecord(definition)) {
+    return [];
+  }
+
+  const options: EnumOptionPayload[] = [];
+  for (const [optionKey, rawValue] of Object.entries(definition)) {
+    if (optionKey === '__refs' || optionKey === '$refs') {
+      continue;
+    }
+    const option = objectEntryToOption(optionKey, rawValue);
+    if (option) {
+      options.push(option);
+    }
+  }
+  return options;
+}
+
+function objectEntryToOption(optionKey: string, rawValue: unknown): EnumOptionPayload | undefined {
+  if (Array.isArray(rawValue)) {
+    return optionFromValue(optionKey, rawValue[0], rawValue[1]);
+  }
+  if (isRecord(rawValue)) {
+    if ('ref' in rawValue) {
+      return undefined;
+    }
+    const value = rawValue.value ?? rawValue.literal;
+    return optionFromValue(optionKey, value, rawValue.description);
+  }
+  return optionFromValue(optionKey, rawValue);
+}
+
+function arrayEntryToOptions(item: unknown, index: number): EnumOptionPayload[] {
+  if (Array.isArray(item)) {
+    return compactOption(optionFromValue(deriveLiteralName(item[0], index), item[0], item[1]));
+  }
+  if (isRecord(item)) {
+    if ('ref' in item) {
+      return [];
+    }
+    const value = item.value ?? item.literal;
+    const key = typeof item.name === 'string' && item.name ? item.name : deriveLiteralName(value, index);
+    return compactOption(optionFromValue(key, value, item.description));
+  }
+  return compactOption(optionFromValue(deriveLiteralName(item, index), item));
+}
+
+function compactOption(option: EnumOptionPayload | undefined): EnumOptionPayload[] {
+  return option ? [option] : [];
+}
+
+function optionFromValue(
+  key: string,
+  rawValue: unknown,
+  rawDescription?: unknown
+): EnumOptionPayload | undefined {
+  if (!isEnumPrimitive(rawValue)) {
+    return undefined;
+  }
+  const option: EnumOptionPayload = {
+    key,
+    value: String(rawValue),
+    source: 'context'
+  };
+  if (rawDescription !== undefined && rawDescription !== null) {
+    return { ...option, description: String(rawDescription) };
+  }
+  return option;
+}
+
+function deriveLiteralName(value: unknown, index: number): string {
+  if (typeof value === 'number') {
+    return `Value${value}`;
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'True' : 'False';
+  }
+  if (typeof value !== 'string') {
+    return `Value${index}`;
+  }
+  const trimmed = value.trim();
+  if (isValidIdentifier(trimmed)) {
+    return trimmed;
+  }
+  const camel = trimmed
+    .split(new RegExp('[\\s._-]+'))
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join('');
+  return camel || `Value${index}`;
+}
+
+function isValidIdentifier(value: string): boolean {
+  return new RegExp('^[A-Za-z_][A-Za-z0-9_]*$').test(value);
+}
+
+function isEnumPrimitive(value: unknown): value is EnumPrimitive {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+}
+
+function isContextFileName(fileName: string): boolean {
+  return CONTEXT_FILENAME_PATTERN.test(fileName) && !fileName.startsWith('~');
+}
+
+function compareContextFileNames(a: string, b: string): number {
+  const rank = (fileName: string) => (BASE_CONTEXT_FILENAME_PATTERN.test(fileName) ? 0 : 1);
+  const rankDelta = rank(a) - rank(b);
+  return rankDelta === 0 ? a.localeCompare(b) : rankDelta;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }

@@ -8,6 +8,7 @@ import {
   convertContextToEnumPayload,
   findContextDirectoryForPath,
   hasContextFiles,
+  loadContextFromDirectory,
   type FileSystemHost
 } from '../src/features/khTables/enumContext';
 
@@ -25,17 +26,29 @@ describe('enumContext utilities', () => {
             COMMON: 1,
             RARE: [2, 'Rare description'],
             LEGENDARY: ['gold', 'Legendary'],
+            MYTHIC: { value: 'mythic', description: 'Object form' },
+            PLACEHOLDER: { literal: 'todo' },
+            REF: { ref: 'items.csv#alias' },
             IGNORED: null
           },
+          Tags: [
+            'fast',
+            3,
+            true,
+            ['ice-damage', 'Ice description'],
+            { name: 'FireDamage', value: 'fire-damage', description: 'Fire description' },
+            { literal: 'earth-damage' },
+            { ref: 'items.csv#alias' }
+          ],
           Empty: {}
         }
       });
 
       expect(payload).to.not.be.undefined;
       const enums = payload!.enums;
-      expect(Object.keys(enums)).to.deep.equal(['Rarity']);
+      expect(Object.keys(enums)).to.deep.equal(['Rarity', 'Tags']);
       const rarity = enums.Rarity;
-      expect(rarity).to.have.length(3);
+      expect(rarity).to.have.length(5);
       expect(rarity[0]).to.deep.include({ key: 'COMMON', value: '1', source: 'context' });
       expect(rarity[0].description).to.be.undefined;
       expect(rarity[1]).to.deep.equal({
@@ -45,11 +58,30 @@ describe('enumContext utilities', () => {
         source: 'context'
       });
       expect(rarity[2]).to.deep.equal({
+        key: 'MYTHIC',
+        value: 'mythic',
+        description: 'Object form',
+        source: 'context'
+      });
+      expect(rarity[3]).to.deep.equal({
+        key: 'PLACEHOLDER',
+        value: 'todo',
+        source: 'context'
+      });
+      expect(rarity[4]).to.deep.equal({
         key: 'RARE',
         value: '2',
         description: 'Rare description',
         source: 'context'
       });
+      expect(enums.Tags).to.deep.equal([
+        { key: 'EarthDamage', value: 'earth-damage', source: 'context' },
+        { key: 'fast', value: 'fast', source: 'context' },
+        { key: 'FireDamage', value: 'fire-damage', description: 'Fire description', source: 'context' },
+        { key: 'IceDamage', value: 'ice-damage', description: 'Ice description', source: 'context' },
+        { key: 'True', value: 'true', source: 'context' },
+        { key: 'Value3', value: '3', source: 'context' }
+      ]);
     });
 
     it('returns undefined when no enums are resolvable', () => {
@@ -114,7 +146,8 @@ describe('enumContext utilities', () => {
         readdir: async (target) => {
           readdirCalls += 1;
           return fs.readdir(target);
-        }
+        },
+        readFile: (target) => fs.readFile(target, 'utf8')
       };
       const cache = new Map<string, string | undefined>();
       const first = await findContextDirectoryForPath(configsDir, { workspaceRoot, fileSystem, cache });
@@ -139,6 +172,33 @@ describe('enumContext utilities', () => {
       expect(await hasContextFiles(unrelatedDir)).to.be.false;
       expect(CONTEXT_FILENAME_PATTERN.test('context.enums.json')).to.be.true;
       expect(CONTEXT_FILENAME_PATTERN.test('context.txt')).to.be.false;
+    });
+
+    it('loads and merges context JSON blobs from one directory', async () => {
+      await fs.writeFile(
+        path.join(configsDir, 'context.enums.json'),
+        JSON.stringify({ Rarity: { COMMON: 1 } }),
+        'utf8'
+      );
+      await fs.writeFile(
+        path.join(configsDir, 'context.enums.extra.json'),
+        JSON.stringify({ Rarity: { RARE: 2 }, WeaponFlag: { ENERGY: 'energy' } }),
+        'utf8'
+      );
+      await fs.writeFile(path.join(configsDir, '~context.enums.tmp.json'), '{}', 'utf8');
+      await fs.writeFile(
+        path.join(configsDir, 'context.meta.json'),
+        JSON.stringify({ exports: { enum: ['enums'] } }),
+        'utf8'
+      );
+
+      expect(await loadContextFromDirectory(configsDir)).to.deep.equal({
+        enums: {
+          Rarity: { RARE: 2 },
+          WeaponFlag: { ENERGY: 'energy' }
+        },
+        meta: { exports: { enum: ['enums'] } }
+      });
     });
   });
 });
