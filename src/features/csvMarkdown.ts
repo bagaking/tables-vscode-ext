@@ -1,5 +1,5 @@
 export function parseCsvToRows(text: string): string[][] {
-  // Minimal CSV parser: supports commas, CR/LF, quotes with "" escaping; does not skip empty lines
+  // Minimal CSV parser: supports commas, CRLF/LF/CR, quotes with "" escaping; does not skip empty lines
   if (typeof text !== 'string' || text.length === 0) return [[]];
   const rows: string[][] = [];
   let row: string[] = [];
@@ -29,15 +29,14 @@ export function parseCsvToRows(text: string): string[][] {
       field = '';
       continue;
     }
-    if (ch === '\r') {
-      // ignore CR, handle on LF
-      continue;
-    }
-    if (ch === '\n') {
+    if (ch === '\r' || ch === '\n') {
       row.push(field);
       rows.push(row);
       row = [];
       field = '';
+      if (ch === '\r' && i + 1 < text.length && text[i + 1] === '\n') {
+        i += 1;
+      }
       continue;
     }
     field += ch;

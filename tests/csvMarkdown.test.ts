@@ -29,6 +29,14 @@ describe('csvMarkdown utilities', () => {
     ]);
   });
 
+  it('parses CR-delimited CSV rows', () => {
+    expect(parseCsvToRows('name,count\ralpha,1\rbeta,2')).to.deep.equal([
+      ['name', 'count'],
+      ['alpha', '1'],
+      ['beta', '2']
+    ]);
+  });
+
   it('parses quoted commas and escaped quotes', () => {
     expect(parseCsvToRows('name,quote\n"alpha, beta","say ""hello"""')).to.deep.equal([
       ['name', 'quote'],
