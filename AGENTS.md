@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-The VS Code extension entrypoint lives in `src/extension.ts`, where `CsvEditorProvider` wires up the custom editor and webview messaging. Browser-side assets sit in `media/main.js` and `media/main.css`; treat `media/` as the only folder served into the webview. Build artifacts are emitted to `dist/` by the TypeScript compiler and should not be edited directly. Sample CSV data such as `AN-12-synergy-cards.csv` is available at the repo root for manual smoke tests.
+The VS Code extension entrypoint lives in `src/extension.ts`, where `CsvEditorProvider` wires up the custom editor and webview messaging. Browser-side assets sit in `media/main.js` and `media/main.css`; treat `media/` as the only folder served into the webview. Build artifacts are emitted to `dist/` by the TypeScript compiler and should not be edited directly. Sample CSV data such as `example/AN-12-synergy-cards.csv` is available for manual smoke tests.
 
 ## Build, Test, and Development Commands
 - `pnpm install` (or `npm install`): install extension and webview dependencies.
