@@ -21,6 +21,16 @@ describe('csvMarkdown utilities', () => {
     expect(toGfmMarkdown(rows)).to.equal('| name | notes |\n| --- | --- |\n| alpha | line one<br/>line two |\n');
   });
 
+  it('renders quoted CR-only multiline CSV cells with br separators', () => {
+    const rows = parseCsvToRows('name,notes\ralpha,"line one\rline two"');
+
+    expect(rows).to.deep.equal([
+      ['name', 'notes'],
+      ['alpha', 'line one\rline two']
+    ]);
+    expect(toGfmMarkdown(rows)).to.equal('| name | notes |\n| --- | --- |\n| alpha | line one<br/>line two |\n');
+  });
+
   it('parses CRLF-delimited CSV rows', () => {
     expect(parseCsvToRows('name,count\r\nalpha,1\r\nbeta,2')).to.deep.equal([
       ['name', 'count'],

@@ -48,7 +48,7 @@ export function parseCsvToRows(text: string): string[][] {
 
 export function toGfmMarkdown(rows: string[][]): string {
   const pipePattern = new RegExp('\\|', 'g');
-  const lineBreakPattern = new RegExp('\\r?\\n', 'g');
+  const lineBreakPattern = new RegExp('\\r\\n|\\r|\\n', 'g');
   const safe = (value: string): string => {
     if (value == null) return '';
     // escape pipe, normalize line breaks within a cell
