@@ -6,8 +6,14 @@ const sensitiveNamePattern = new RegExp('(?:token|secret|credential|credentials|
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const requiredRuntimeAssets = [
   'dist/extension.js',
+  'dist/features/khTables/detection.js',
+  'dist/features/khTables/enumContext.js',
+  'dist/features/khTables/state.js',
+  'media/main.css',
   'media/main.js',
+  'media/vendor/ag-grid.css',
   'media/vendor/ag-grid-community.min.js',
+  'media/vendor/ag-theme-quartz.css',
   'media/vendor/papaparse.min.js',
 ];
 
