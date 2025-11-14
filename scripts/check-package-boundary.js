@@ -6,6 +6,7 @@ const sensitiveNamePattern = new RegExp('(?:token|secret|credential|credentials|
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const requiredRuntimeAssets = [
   'dist/extension.js',
+  'dist/features/csvMarkdown.js',
   'dist/features/khTables/detection.js',
   'dist/features/khTables/enumContext.js',
   'dist/features/khTables/state.js',
