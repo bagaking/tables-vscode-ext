@@ -4,6 +4,12 @@ const packageFilePattern = new RegExp('^[A-Za-z0-9._/-]+$');
 const envFilePattern = new RegExp('^\\.env(?:\\.|$)');
 const sensitiveNamePattern = new RegExp('(?:token|secret|credential|credentials|passwd|password)', 'i');
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+const requiredRuntimeAssets = [
+  'dist/extension.js',
+  'media/main.js',
+  'media/vendor/ag-grid-community.min.js',
+  'media/vendor/papaparse.min.js',
+];
 
 const result = spawnSync(pnpmCommand, ['exec', 'vsce', 'ls'], {
   cwd: process.cwd(),
@@ -44,6 +50,17 @@ const deniedFiles = packageFiles.filter((file) => isDeniedPackageFile(file));
 if (deniedFiles.length > 0) {
   console.error('\nPackage boundary check failed. Forbidden files would be published:');
   for (const file of deniedFiles) {
+    console.error(`- ${file}`);
+  }
+  process.exit(1);
+}
+
+const packageFileSet = new Set(packageFiles.map((file) => file.split('\\').join('/')));
+const missingRequiredRuntimeAssets = requiredRuntimeAssets.filter((file) => !packageFileSet.has(file));
+
+if (missingRequiredRuntimeAssets.length > 0) {
+  console.error('\nPackage boundary check failed. Required runtime assets are missing:');
+  for (const file of missingRequiredRuntimeAssets) {
     console.error(`- ${file}`);
   }
   process.exit(1);
