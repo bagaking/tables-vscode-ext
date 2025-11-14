@@ -53,4 +53,12 @@ describe('csvMarkdown utilities', () => {
       ['alpha, beta', 'say "hello"']
     ]);
   });
+
+  it('treats mid-field bare quotes as literal characters', () => {
+    expect(parseCsvToRows('name,note\nalpha,a"b\nnext,row')).to.deep.equal([
+      ['name', 'note'],
+      ['alpha', 'a"b'],
+      ['next', 'row']
+    ]);
+  });
 });

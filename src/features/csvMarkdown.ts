@@ -5,6 +5,7 @@ export function parseCsvToRows(text: string): string[][] {
   let row: string[] = [];
   let field = '';
   let inQuotes = false;
+  let atFieldStart = true;
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i];
     if (inQuotes) {
@@ -20,13 +21,15 @@ export function parseCsvToRows(text: string): string[][] {
       }
       continue;
     }
-    if (ch === '"') {
+    if (ch === '"' && atFieldStart) {
       inQuotes = true;
+      atFieldStart = false;
       continue;
     }
     if (ch === ',') {
       row.push(field);
       field = '';
+      atFieldStart = true;
       continue;
     }
     if (ch === '\r' || ch === '\n') {
@@ -34,12 +37,14 @@ export function parseCsvToRows(text: string): string[][] {
       rows.push(row);
       row = [];
       field = '';
+      atFieldStart = true;
       if (ch === '\r' && i + 1 < text.length && text[i + 1] === '\n') {
         i += 1;
       }
       continue;
     }
     field += ch;
+    atFieldStart = false;
   }
   row.push(field);
   rows.push(row);
